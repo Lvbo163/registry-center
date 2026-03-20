@@ -7,10 +7,12 @@ import uvicorn
 
 from agent_registry.server import app
 from common.cert.CertValidater import CertValidator
+from common.log.audit_logger import audit_logger, LogLevel, OperationResult, OperatorObject, OperationName
 from common.util.ConfUtil import conf_singleton_obj, load_cert_password
 from common.util.config_util import get_conf
 
 from uvicorn import config
+
 
 def get_user_info_from_env():
     """从环境变量获取用户信息"""
@@ -20,6 +22,20 @@ def get_user_info_from_env():
         'gid': os.environ.get('APP_GID', 'unknown'),
     }
     return user_info
+
+
+def record_startup_log():
+    server_config = get_conf()
+    audit_logger.log(operation_name=OperationName.START_SERVICE,
+                     level=LogLevel.DANGER,
+                     result=OperationResult.SUCCESS,
+                     object_name=OperatorObject.SERVICE,
+                     details={"ip": server_config.get("ip", ""), "port": server_config.get("port", "")},
+                     user_name=get_user_info_from_env().get('username'))
+
+
+app.add_event_handler("startup", record_startup_log)
+
 
 def my_create_ssl_context(
         certfile: str | os.PathLike[str],
@@ -46,6 +62,7 @@ def my_create_ssl_context(
 
     return ctx
 
+
 # 由于原版config不支持加载crl，因此扩展crl支持
 config.create_ssl_context = my_create_ssl_context
 
@@ -61,7 +78,7 @@ class CustomUvicornServer:
         config = uvicorn.Config(
             app=app,
             host=self.server_config.get("ip", "127.0.0.1"),
-            port=int(self.server_config.get("port", 8888)),
+            port=int(self.server_config.get("port", 5001)),
             ssl_certfile=self.conf_obj.ssl_certfile,
             # 私钥路径
             ssl_keyfile=self.conf_obj.ssl_keyfile,
@@ -73,22 +90,31 @@ class CustomUvicornServer:
             ssl_cert_reqs=self.conf_obj.verify_client,
             timeout_keep_alive=0,
             timeout_graceful_shutdown=int(self.server_config.get("connection.timeout", 30)),
-            log_level="info"
+            log_level="info",
+            # callback_notify=record_startup_log
         )
         server = uvicorn.Server(config)
         server.run()
 
 
 def main():
-    # 校验配置
-    conf_obj = conf_singleton_obj
-    result = CertValidator(conf_obj).validate()
-    if not result.is_valid:
-        sys.exit(result.message)
     server_config = get_conf()
-    # 创建并启动服务器
-    server = CustomUvicornServer(server_config, conf_obj)
-    server.run()
+    try:
+        # 校验配置
+        conf_obj = conf_singleton_obj
+        result = CertValidator(conf_obj).validate()
+        if not result.is_valid:
+            sys.exit(result.message)
+        # 创建并启动服务器
+        server = CustomUvicornServer(server_config, conf_obj)
+        server.run()
+    except Exception as e:
+        audit_logger.log(operation_name=OperationName.START_SERVICE,
+                         level=LogLevel.DANGER,
+                         result=OperationResult.FAILURE,
+                         object_name=OperatorObject.SERVICE,
+                         details={"ip": server_config.get("ip", ""), "port": server_config.get("port", "")},
+                         user_name=get_user_info_from_env().get('username'))
 
 
 if __name__ == "__main__":

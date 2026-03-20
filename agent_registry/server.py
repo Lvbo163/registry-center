@@ -27,7 +27,7 @@ from agent_registry.config import (
 from agent_registry.core import RegistryCore
 from agent_registry.middleware import ConnectionLimitMiddleware, TimeoutMiddleware
 from agent_registry.model.validated_agentcard import ValidatedAgentCard
-from common.log.audit_logger import audit_logger, OperationResult, LogLevel, OperatorObject
+from common.log.audit_logger import audit_logger, OperationResult, LogLevel, OperatorObject, OperationName
 from common.util.config_util import get_conf
 
 # ---------- Rate Limiter Setup (In-Memory) ----------
@@ -172,7 +172,7 @@ async def register_agent(
                "url": agent.provider.url}
     if len(get_registry().get_agents()) >= int(config.get('agent.num.max', 40)):
         details["message"] = "Agent registration limit exceeded."
-        audit_logger.log(operation_name="Agent Registration",
+        audit_logger.log(operation_name=OperationName.REGISTER_AGENT,
                          level=LogLevel.MINOR,
                          result=OperationResult.FAILURE,
                          object_name=OperatorObject.AGENT,
@@ -185,7 +185,7 @@ async def register_agent(
     key = make_key(agent.name, agent.provider.organization)
     if key in get_registry().get_agents():
         details["message"] = "Registration skipped: duplicate agent."
-        audit_logger.log(operation_name="Agent Registration",
+        audit_logger.log(operation_name=OperationName.REGISTER_AGENT,
                          level=LogLevel.MINOR,
                          result=OperationResult.FAILURE,
                          object_name=OperatorObject.AGENT,
@@ -198,7 +198,7 @@ async def register_agent(
 
     try:
         success = await registry.register(agent)
-        audit_logger.log(operation_name="Agent Registration",
+        audit_logger.log(operation_name=OperationName.REGISTER_AGENT,
                          level=LogLevel.MINOR,
                          result=OperationResult.SUCCESS,
                          object_name=OperatorObject.AGENT,
@@ -207,7 +207,7 @@ async def register_agent(
         return success
     except ValueError as e:
         details["message"] = str(e)
-        audit_logger.log(operation_name="Agent Registration",
+        audit_logger.log(operation_name=OperationName.REGISTER_AGENT,
                          level=LogLevel.MINOR,
                          result=OperationResult.FAILURE,
                          object_name=OperatorObject.AGENT,
@@ -217,7 +217,7 @@ async def register_agent(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
         ) from e
     except Exception as e:
-        audit_logger.log(operation_name="Agent Registration",
+        audit_logger.log(operation_name=OperationName.REGISTER_AGENT,
                          level="Minor",
                          result=OperationResult.FAILURE,
                          object_name=OperatorObject.AGENT,
