@@ -108,14 +108,14 @@ class AuditLogger:
             # 确保权限（尤其新创建时）
             os.chmod(self.log_file, FILE_PERMISSION_MODE)
 
-    def log(self,
-            operation_name: str,
-            level: str,
-            result: str,
-            object_name: str,
-            details: Dict[str, Any] = None,
-            client_ip: str = "",
-            user_name: str = ""):
+    def audit(self,
+              operation_name: str,
+              level: str,
+              result: str,
+              object_name: str,
+              details: Dict[str, Any] = None,
+              client_ip: str = "",
+              user_name: str = ""):
         """
         记录审计日志
         :param operation_name: 操作名称，如“启动服务”
@@ -140,22 +140,3 @@ class AuditLogger:
 
 
 audit_logger = AuditLogger()
-
-
-def log_operation(operation_name: str, level: str, result: str, object_name: str,
-                  details=None, client_ip="", user_name=""):
-    """便捷函数，直接调用全局 logger"""
-    audit_logger.log(operation_name, level, result, object_name, details, client_ip, user_name)
-
-
-if __name__ == '__main__':
-    log_operation(
-        operation_name="启动服务",
-        level="danger",
-        result="成功",
-        object_name="nginx",
-        details={"ip": "192.168.1.100", "port": 80},
-        user_name="admin"
-    )
-
-    # )
