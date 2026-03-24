@@ -144,7 +144,7 @@ app.add_middleware(
 )
 
 register_semaphore = anyio.Semaphore(int(config.get("flowcontrol.parallelism.registe", 1)))
-query_semaphore = anyio.Semaphore(5)
+query_semaphore = anyio.Semaphore(int(config.get("flowcontrol.parallelism.query", 10)))
 
 
 # ---------- Dependency: Registry Core (Singleton) ----------
