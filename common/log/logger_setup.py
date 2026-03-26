@@ -68,7 +68,7 @@ def add_module_logger(module_prefix: str):
         format=LOG_FORMAT,
         level="INFO",
         rotation=lambda message, file: (
-                os.stat(file.name).st_size > 1
+                os.stat(file.name).st_size > 10 * 1024 * 1024
                 or datetime.now(tz=timezone.utc).date() != datetime.fromtimestamp(os.path.getctime(file.name)).date()
         ),
         retention="30 days",
@@ -83,7 +83,7 @@ def add_module_logger(module_prefix: str):
         format=LOG_FORMAT,
         level="ERROR",
         rotation=lambda message, file: (
-                os.stat(file.name).st_size > 1
+                os.stat(file.name).st_size > 10 * 1024 * 1024
                 or datetime.now(tz=timezone.utc).date() != datetime.fromtimestamp(os.path.getctime(file.name)).date()
         ),
         retention="30 days",
