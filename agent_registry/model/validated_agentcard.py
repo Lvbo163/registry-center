@@ -121,7 +121,7 @@ class ValidatedAgentCard(AgentCard):
             raise ValueError(f'The agent organization can contain a maximum of {ORGNIZATION_MAX_LENGTH} characters.')
 
         # 4. 危险字符检查
-        if _DANGEROUS_CHARS.search(org):  # ASCII 控制字符（0-31）
+        if _DANGEROUS_CHARS.search(org):
             raise ValueError('Agent provider organization contains invalid or dangerous characters.')
 
         # 5. URL 校验
