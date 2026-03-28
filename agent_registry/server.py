@@ -187,11 +187,11 @@ async def security_middleware(request: Request, call_next):
 
 
 # ---------- Routes ----------
-def _check_agent_limit(registry: RegistryCore, client_ip: str, details: dict) -> None:
+async def _check_agent_limit(registry: RegistryCore, client_ip: str, details: dict) -> None:
     """检查注册数量是否超过上限，若超过则记录审计日志并抛出异常。"""
     if len(registry.get_agents()) >= int(config.get(AGENT_NUM_MAX, 40)):
         details["message"] = "Agent registration limit exceeded."
-        audit_handle.handle({
+        await audit_handle.handle({
             "operation_name": OperationName.REGISTER_AGENT,
             "level": LogLevel.MINOR,
             "result": OperationResult.FAILURE,
@@ -205,12 +205,12 @@ def _check_agent_limit(registry: RegistryCore, client_ip: str, details: dict) ->
         )
 
 
-def _check_duplicate_agent(agent: ValidatedAgentCard, registry: RegistryCore, client_ip: str, details: dict) -> None:
+async def _check_duplicate_agent(agent: ValidatedAgentCard, registry: RegistryCore, client_ip: str, details: dict) -> None:
     """检查是否已存在相同 (name, organization) 的 agent，若存在则记录并抛出异常。"""
     key = _make_agent_key(agent.name, agent.provider.organization)
     if key in registry.get_agents():
         details["message"] = "Registration skipped: duplicate agent."
-        audit_handle.handle({
+        await audit_handle.handle({
             "operation_name": OperationName.REGISTER_AGENT,
             "level": LogLevel.MINOR,
             "result": OperationResult.FAILURE,
@@ -233,8 +233,8 @@ async def _perform_registration(
     """执行实际的注册操作，处理可能的 ValueError 和其他异常，并记录对应日志。"""
     try:
         save_handle = HandlerRegistry.get_handler(InterfaceType.INSERT)
-        success = await save_handle.async_handle(agent)
-        audit_handle.handle({
+        success = await save_handle.handle(agent)
+        await audit_handle.handle({
             "operation_name": OperationName.REGISTER_AGENT,
             "level": LogLevel.MINOR,
             "result": OperationResult.SUCCESS,
@@ -245,7 +245,7 @@ async def _perform_registration(
         return success
     except ValueError as e:
         details["message"] = str(e)
-        audit_handle.handle({
+        await audit_handle.handle({
             "operation_name": OperationName.REGISTER_AGENT,
             "level": LogLevel.MINOR,
             "result": OperationResult.FAILURE,
@@ -257,7 +257,7 @@ async def _perform_registration(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
         ) from e
     except Exception as e:
-        audit_handle.handle({
+        await audit_handle.handle({
             "operation_name": OperationName.REGISTER_AGENT,
             "level": LogLevel.MINOR,
             "result": OperationResult.FAILURE,
@@ -296,13 +296,13 @@ async def register_agent(
         "url": agent.provider.url,
     }
     authenticate_handle = HandlerRegistry.get_handler(InterfaceType.AUTHENTICATE)
-    authenticate_handle.handle(client_ip, request)
+    await authenticate_handle.handle(client_ip, request)
     acquired = False
     try:
         register_semaphore.acquire_nowait()
         acquired = True
-        _check_agent_limit(registry, client_ip, details)
-        _check_duplicate_agent(agent, registry, client_ip, details)
+        await _check_agent_limit(registry, client_ip, details)
+        await _check_duplicate_agent(agent, registry, client_ip, details)
         result = await _perform_registration(agent, registry, client_ip, details)
         return JSONResponse(
             content=result,
@@ -332,14 +332,14 @@ async def list_agents_exact(
     """
     client_ip = request.client.host
     authenticate_handle = HandlerRegistry.get_handler(InterfaceType.AUTHENTICATE)
-    authenticate_handle.handle(client_ip, request)
+    await authenticate_handle.handle(client_ip, request)
     acquired = False
     try:
         query_semaphore.acquire_nowait()
         acquired = True
         try:
             query_handle = HandlerRegistry.get_handler(InterfaceType.QUERY)
-            agents = query_handle.handle(name, organization)
+            agents = await query_handle.handle(name, organization)
             return agents
         except Exception as e:
             logger.error(f"Error in exact search: {e}")
