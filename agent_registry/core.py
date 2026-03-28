@@ -1,12 +1,15 @@
 # agent_registry/core.py
 import asyncio
+import os
+from pathlib import Path
 from typing import List, Dict, Tuple, Optional
 
 from a2a.types import AgentCard
 from loguru import logger
 
-from agent_registry.config import PERSISTENCE_FILE, MAX_REGISTER_NUM
+from agent_registry.config import PERSISTENCE_FILE
 from agent_registry.persistence import save_to_file, load_from_file
+from common.util.config_util import get_root_path
 
 
 class RegistryCore:
@@ -17,7 +20,10 @@ class RegistryCore:
     """
 
     def __init__(self, persistence_file: str = PERSISTENCE_FILE):
-        self.persistence_file = persistence_file
+        data_path = Path(get_root_path()) / "data"
+        data_path.mkdir(exist_ok=True)
+        os.chmod(data_path, 0o700)
+        self.persistence_file = str(data_path / persistence_file)
         # Internal storage of Agents: key is (name, organization) Tuple, value is AgentCard
         self._agents: Dict[Tuple[str, str], AgentCard] = {}
         self._load()  # load from file on startup
