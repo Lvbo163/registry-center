@@ -5,8 +5,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from loguru import logger
 
-_LOG_DIR = Path("logs")
+from common.util.config_util import get_root_path
+
+root_path = get_root_path()
+_LOG_DIR = Path(root_path) / "log"
 _LOG_DIR.mkdir(exist_ok=True)
+os.chmod(_LOG_DIR, 0o700)
 
 LOG_FORMAT = (
     "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | "
