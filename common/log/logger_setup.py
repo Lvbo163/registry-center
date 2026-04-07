@@ -100,3 +100,4 @@ def add_module_logger(module_prefix: str):
         )
     finally:
         os.umask(old_mask)
+

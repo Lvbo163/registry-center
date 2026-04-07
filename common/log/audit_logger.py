@@ -93,7 +93,7 @@ class AuditLogger:
         if self._get_file_size() < self.max_size:
             return
 
-        # 1. 先删除最旧的文件(.backup_count + 1)
+        # 1. 先删除最旧的文件（.backup_count + 1）
         oldest = f"{self.log_file}.{self.backup_count + 1}"
         if os.path.exists(oldest):
             try:
