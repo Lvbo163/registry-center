@@ -14,7 +14,7 @@ from agent_registry.server import app
 from common.cert.cert_validater import CertValidator
 from common.custom.custom_handle import HandlerRegistry
 from common.custom.interface_type import InterfaceType
-from common.log.audit_logger import LogLevel, OperationResult, OperationObject, OperaitonName
+from common.log.audit_logger import LogLevel, OperationResult, OperationObject, OperationName
 from common.util.cipher_util import DEFAULT_ENCODING
 from common.util.conf_util import conf_singleton_obj, load_cert_password, set_ssl_folder_permissions
 from common.util.config_util import get_conf
@@ -35,7 +35,7 @@ def get_user_info_from_evn():
 async def record_startup_log():
     server_config = get_conf()
     await audit_handle.handle({
-        "operation_name": OperaitonName.START_SERVICE,
+        "operation_name": OperationName.START_SERVICE,
         "level": LogLevel.DANGER,
         "result": OperationResult.SUCCESS,
         "object_name": OperationObject.SERVICE,
@@ -129,7 +129,7 @@ def main():
         logger.error(f"agent_registry server start failed {e}")
         asyncio.run(audit_handle.handle({
             "object_name": OperationObject.SERVICE,
-            "operation_name": OperaitonName.START_SERVICE,
+            "operation_name": OperationName.START_SERVICE,
             "level": LogLevel.DANGER,
             "result": OperationResult.FAILURE,
             "details": {"ip": server_config.get("ip", ""), "port": server_config.get("port", "")},
