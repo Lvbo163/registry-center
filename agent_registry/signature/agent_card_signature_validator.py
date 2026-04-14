@@ -1,6 +1,8 @@
 import json
 import base64
 from typing import Optional, List, Dict, Any
+
+from a2a.utils.helpers import validate
 from loguru import logger
 
 from a2a.types import AgentCard
@@ -72,7 +74,7 @@ class AgentCardSignatureValidator:
                 kid = protected_header.kid
                 
                 backend_key_fetcher = self.jwk_fetcher.create_backend_key_fetcher(organization, agent_name)
-                backend_key = backend_key_fetcher("", kid)
+                backend_key = backend_key_fetcher(kid, "")  # 这里第二个参数代表jku，由于后台公钥无需jku，这里给空字符串
 
                 # 步骤2：尝试从后台获取公钥并验签
                 if backend_key:
@@ -87,7 +89,8 @@ class AgentCardSignatureValidator:
 
             # 步骤3：尝试从jku获取公钥并验签
             logger.info(f"Trying jku key signature.")
-            verifier = create_signature_verifier(self.jwk_fetcher.fetch_jku_key, ['ES256', 'RS256'])
+            jku_key_fetcher = lambda jku, key_id: self.jwk_fetcher.fetch_jku_key(jku, key_id)
+            verifier = create_signature_verifier(jku_key_fetcher, ['ES256', 'RS256'])
             try:
                 verifier(agent_card)
                 logger.info(f"Signature validation passed with jku key.")
@@ -144,10 +147,10 @@ class AgentCardSignatureValidator:
     def _decode_protected(self, protected: str) -> Optional[ProtectedHeader]:
         """解码protected头"""
         try:
-            decoded_bytes = base64.urlsafe_b64decode(protected)
             padding = 4 - len(protected) % 4
             if padding != 4:
-                decoded_bytes += b'=' * padding
+                protected += '=' * padding
+            decoded_bytes = base64.urlsafe_b64decode(protected)
             
             protected_json = decoded_bytes.decode('utf-8')
             protected_dict = json.loads(protected_json)
