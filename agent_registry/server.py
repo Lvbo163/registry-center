@@ -358,16 +358,6 @@ async def register_agent(
     Returns True if registered, False if duplicate.
     """
     client_ip = request.client.host
-    
-    # 验证AgentCard签名
-    signature_validator = get_agent_card_validator()
-    validation_result = signature_validator.validate_agent_card(agent)
-    if not validation_result.is_valid:
-        logger.error(f"AgentCard signature validation failed: {validation_result.error_message}")
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Signature validation failed: {validation_result.error_message}"
-        )
     details = {
         "agentName": agent.name,
         "organization": agent.provider.organization,
@@ -377,6 +367,16 @@ async def register_agent(
     await authenticate_handle.handle(client_ip, request)
     acquired = False
     try:
+        # 验证AgentCard签名
+        signature_validator = get_agent_card_validator()
+        validation_result = signature_validator.validate_agent_card(agent)
+        if not validation_result.is_valid:
+            logger.error(f"AgentCard signature validation failed: {validation_result.error_message}")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail=f"Signature validation failed: {validation_result.error_message}"
+            )
+
         register_semaphore.acquire_nowait()
         acquired = True
         await _check_agent_limit(registry, client_ip, details)
