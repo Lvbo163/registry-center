@@ -1,3 +1,4 @@
+import os
 import json
 import datetime
 from pathlib import Path
@@ -218,7 +219,9 @@ class PublicKeyManager:
             AgentKeysStorage: 存储对象
         """
         try:
-            with open(storage_path, 'r', encoding='utf-8') as f:
+            base_dir = os.getcwd()
+            file_path = os.path.join(base_dir, storage_path)
+            with open(file_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
             
             return AgentKeysStorage(**data)

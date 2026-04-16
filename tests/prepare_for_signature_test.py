@@ -15,12 +15,16 @@ import base64
 from jose import jws
 from a2a.types import AgentCard
 from a2a.utils.helpers import canonicalize_agent_card
+from a2a.utils.signing import create_agent_card_signer, ProtectedHeader, create_signature_verifier
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import hashes
 from cryptography.exceptions import InvalidSignature
 from datetime import datetime
+
+from agent_registry.signature.jwk_fetcher import JWKFetcher
+from agent_registry.signature.public_key_manager import PublicKeyManager
 
 
 def generate_ecdsa_key_pair():
@@ -158,25 +162,47 @@ def base64url_encode(data):
 
 
 def sign_agent_card(private_key, agent_card, protected_header):
-    # 1. 构造 AgentCard 对象并规范化 payload
+    """
+    对AgentCard进行签名
+
+    Args:
+        private_key: 私钥对象
+        agent_card: AgentCard数据
+        protected_header: protected头
+
+    Returns:
+        dict: 签名对象
+    """
+    # 1. 创建签名器
+    signer = create_agent_card_signer(private_key, protected_header=protected_header)
+
+    # 2. 使用验签器生成带签名的请求
     agent_card_obj = AgentCard(**agent_card)
-    payload_str = canonicalize_agent_card(agent_card_obj)
-    payload_bytes = payload_str.encode('utf-8')  # 转换为 bytes
+    signed_card = signer(agent_card_obj)
 
-    # 2. 使用 JWS 库签名
-    signature = jws.sign(
-        payload_bytes,
-        private_key,
-        algorithm=protected_header['alg'],
-        headers=protected_header
-    )
+    canonical_payload = canonicalize_agent_card(agent_card_obj)
+    protected_b64url = signed_card.model_dump().get("signatures")[0].get('protected')
+    payload_b64url = base64url_encode(canonical_payload.encode('utf-8'))
+    sign_input = f"{protected_b64url}.{payload_b64url}"
+    print('=' * 100)
+    print('sign_input:')
+    print(sign_input)
+    print('=' * 100)
 
-    # 3. 解析 JWS 格式：protected.payload.signature
-    parts = signature.split('.')
-    return {
-        "protected": parts[0],
-        "signature": parts[2]
-    }
+    # 3. 此处尝试直接验签，确保直接验签是可以成功的
+    organization = "TestOrg"
+    agent_name = "TestAgent"
+    kid = "test-key-1"
+    public_key_manager = PublicKeyManager()
+    jwk_fetcher = JWKFetcher(public_key_manager)
+    backend_key_fetcher = jwk_fetcher.create_backend_key_fetcher(organization, agent_name)
+    backend_key = backend_key_fetcher(kid, "")  # 这里第二个参数代表jku，由于后台公钥无需jku，这里给空字符串
+    if backend_key:
+        verifier = create_signature_verifier(backend_key_fetcher, ['ES256', 'RS256'])
+        verifier(signed_card)
+
+
+    return signed_card.model_dump().get("signatures")[0]
 
 
 def create_backend_key_file(organization, agent_name, jwk):
@@ -233,16 +259,23 @@ def create_complete_agent_card_with_signature():
     print(private_key_pem)
     print(f"   公钥(JWK):")
     print(json.dumps(public_key_jwk, indent=2))
+
+    print("\n" + "=" * 60)
+    print("步骤2: 创建后台公钥文件")
+    print("=" * 60)
+    organization = "TestOrg"
+    agent_name = "TestAgent"
+    create_backend_key_file(organization, agent_name, public_key_jwk)
     
     print("\n" + "=" * 60)
-    print("步骤2: 创建AgentCard数据")
+    print("步骤3: 创建AgentCard数据")
     print("=" * 60)
     agent_card = create_agent_card()
     print(f"✅ AgentCard数据创建成功")
     print(json.dumps(agent_card, indent=2))
     
     print("\n" + "=" * 60)
-    print("步骤3: 创建protected头")
+    print("步骤4: 创建protected头")
     print("=" * 60)
     kid = "test-key-1"
     jku_url = "https://test.org/jwks.json"
@@ -251,26 +284,19 @@ def create_complete_agent_card_with_signature():
     print(json.dumps(protected_header, indent=2))
     
     print("\n" + "=" * 60)
-    print("步骤4: 对AgentCard进行签名")
+    print("步骤5: 对AgentCard进行签名")
     print("=" * 60)
     signature_obj = sign_agent_card(private_key, agent_card, protected_header)
     print(f"✅ 签名成功")
     print(json.dumps(signature_obj, indent=2))
     
     print("\n" + "=" * 60)
-    print("步骤5: 构造完整的AgentCard（包含signatures）")
+    print("步骤6: 构造完整的AgentCard（包含signatures）")
     print("=" * 60)
     agent_card_with_signature = agent_card.copy()
     agent_card_with_signature["signatures"] = [signature_obj]
     print(f"✅ 完整AgentCard构造成功")
     print(json.dumps(agent_card_with_signature, indent=2))
-    
-    print("\n" + "=" * 60)
-    print("步骤6: 创建后台公钥文件")
-    print("=" * 60)
-    organization = "TestOrg"
-    agent_name = "TestAgent"
-    create_backend_key_file(organization, agent_name, public_key_jwk)
     
     return agent_card_with_signature, private_key_pem, public_key_jwk
 

@@ -86,7 +86,7 @@ class AgentCardSignatureValidator:
 
             # 步骤3：尝试从jku获取公钥并验签
             logger.info(f"Trying jku key signature.")
-            jku_key_fetcher = lambda jku, key_id: self.jwk_fetcher.fetch_jku_key(key_id, jku)
+            jku_key_fetcher = lambda key_id, jku: self.jwk_fetcher.fetch_jku_key(key_id, jku)
             verifier = create_signature_verifier(jku_key_fetcher, ['ES256', 'RS256'])
             try:
                 verifier(agent_card)

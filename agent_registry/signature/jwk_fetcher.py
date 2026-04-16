@@ -1,12 +1,7 @@
 import requests
-import base64
 from typing import Optional, Callable
+from jwt import PyJWK
 from loguru import logger
-
-from cryptography.hazmat.primitives.asymmetric import ec
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.backends import default_backend
-
 from agent_registry.signature.models import JWK, JWKS
 from agent_registry.signature.public_key_manager import PublicKeyManager
 
@@ -84,9 +79,9 @@ class JWKFetcher:
         kid: str,
         organization: str,
         agent_name: str
-    ) -> Optional[str]:
+    ) -> Optional[PyJWK]:
         """
-        从后台获取公钥（返回PEM格式）
+        从后台获取公钥
         
         Args:
             kid: 密钥ID
@@ -94,7 +89,7 @@ class JWKFetcher:
             agent_name: Agent名称
         
         Returns:
-            Optional[str]: PEM格式的公钥，不存在返回None
+            Optional[JWK]: JWK对象，不存在返回None
         """
         try:
             if not self.public_key_manager:
@@ -104,7 +99,7 @@ class JWKFetcher:
             jwk = self.public_key_manager.get_public_key(organization, agent_name, kid)
             if jwk:
                 logger.info(f"Found backend key for kid: {kid}")
-                return self._convert_jwk_to_pem(jwk)
+                return self._convert_to_pyjwk(jwk)
             else:
                 logger.info(f"Backend key not found for kid: {kid}")
                 return None
@@ -116,7 +111,7 @@ class JWKFetcher:
         self,
         organization: str,
         agent_name: str
-    ) -> Callable[[str, str], Optional[str]]:
+    ) -> Callable[[str, str], Optional[PyJWK]]:
         """
         创建后台公钥获取函数（闭包）
         
@@ -125,87 +120,63 @@ class JWKFetcher:
             agent_name: Agent名称
         
         Returns:
-            Callable: 接收(jku, kid)参数，返回PEM格式的公钥字符串
+            Callable: 接收(jku, kid)参数，返回JWK对象
         """
-        def fetch_backend_key(kid: str, jku: str) -> Optional[str]:
+        def fetch_backend_key(kid: str, jku: str) -> Optional[PyJWK]:
             return self.fetch_from_backend(kid, organization, agent_name)
         
         return fetch_backend_key
     
-    def fetch_jku_key(self, kid: str, jku: str) -> Optional[str]:
+    def fetch_jku_key(self, kid: str, jku: str) -> Optional[PyJWK]:
         """
-        从jku获取公钥（返回PEM格式）
+        从jku获取公钥
         
         Args:
             kid: 密钥ID
             jku: JWK Set URL
         
         Returns:
-            Optional[str]: PEM格式的公钥，不存在返回None
+            Optional[JWK]: JWK对象，不存在返回None
         """
         jwks = self.fetch_jwks(jku)
         if jwks:
             jwk = self.find_key_by_id(jwks, kid)
             if jwk:
-                return self._convert_jwk_to_pem(jwk)
+                return self._convert_to_pyjwk(jwk)
         return None
     
-    def _convert_jwk_to_pem(self, jwk: JWK) -> str:
+    def _convert_to_pyjwk(self, jwk: JWK):
         """
-        将JWK转换为PEM格式
+        将自定义JWK对象转换为jwt.api_jwk.PyJWK对象
         
         Args:
-            jwk: JWK对象
+            jwk: 自定义JWK对象
         
         Returns:
-            str: PEM格式的公钥
+            jwt.api_jwk.PyJWK对象
         """
         try:
-            if jwk.kty == 'EC':
-                # 处理ECDSA密钥
-                x_bytes = base64.urlsafe_b64decode(jwk.x + '=' * (-len(jwk.x) % 4))
-                y_bytes = base64.urlsafe_b64decode(jwk.y + '=' * (-len(jwk.y) % 4))
-                
-                x_int = int.from_bytes(x_bytes, byteorder='big')
-                y_int = int.from_bytes(y_bytes, byteorder='big')
-                
-                public_key = ec.EllipticCurvePublicNumbers(
-                    x=x_int,
-                    y=y_int,
-                    curve=ec.SECP256R1()
-                ).public_key(default_backend())
-                
-                pem = public_key.public_bytes(
-                    encoding=serialization.Encoding.PEM,
-                    format=serialization.PublicFormat.SubjectPublicKeyInfo
-                )
-                
-                return pem.decode('utf-8')
+            pyjwk_dict = {
+                "kty": jwk.kty,
+                "kid": jwk.kid,
+                "use": jwk.use,
+                "alg": jwk.alg
+            }
             
-            elif jwk.kty == 'RSA':
-                # 处理RSA密钥
-                n_bytes = base64.urlsafe_b64decode(jwk.n + '=' * (-len(jwk.n) % 4))
-                e_bytes = base64.urlsafe_b64decode(jwk.e + '=' * (-len(jwk.e) % 4))
-                
-                n_int = int.from_bytes(n_bytes, byteorder='big')
-                e_int = int.from_bytes(e_bytes, byteorder='big')
-                
-                from cryptography.hazmat.primitives.asymmetric import rsa
-                public_key = rsa.RSAPublicNumbers(
-                    n=n_int,
-                    e=e_int
-                ).public_key(default_backend())
-                
-                pem = public_key.public_bytes(
-                    encoding=serialization.Encoding.PEM,
-                    format=serialization.PublicFormat.SubjectPublicKeyInfo
-                )
-                
-                return pem.decode('utf-8')
+            if jwk.crv:
+                pyjwk_dict["crv"] = jwk.crv
             
-            else:
-                raise ValueError(f"Unsupported key type: {jwk.kty}")
-                
+            pyjwk_dict["x"] = jwk.x
+            pyjwk_dict["y"] = jwk.y
+            
+            if jwk.n:
+                pyjwk_dict["n"] = jwk.n
+            
+            if jwk.e:
+                pyjwk_dict["e"] = jwk.e
+            
+            return PyJWK(pyjwk_dict)
+            
         except Exception as e:
-            logger.error(f"Failed to convert JWK to PEM: {e}")
+            logger.error(f"Failed to convert JWK to PyJWK: {e}")
             raise
