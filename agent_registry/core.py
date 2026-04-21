@@ -45,7 +45,7 @@ class RegistryCore:
     def __init__(self, persistence_file: str = PERSISTENCE_FILE, use_vectordb: bool = USE_VECTORDB):
         self.llm = get_llm_instance()
         if use_vectordb:
-            self.vectordb = get_or_create_vectordb_tool_instance(get_vectordb_config_by_type(VectorDBType.CustomVDB))
+            self.vectordb = get_or_create_vectordb_tool_instance(get_vectordb_config_by_type(VectorDBType.Milvus))
             self.embedding_tool = get_or_create_embedding_tool_instance(
                 get_embedding_config_by_type(EmbeddingType.BGEM3))
         else:
