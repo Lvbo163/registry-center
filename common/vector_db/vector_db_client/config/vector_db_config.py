@@ -19,7 +19,7 @@ from common.llm.config.config_reader import read_config_as_json
 
 
 class VectorDBType(Enum):
-    CustomVDB = 'custom_vector_db'
+    Milvus = 'milvus'
 
 def convert_vectordb_type(vectordb_type:str)->VectorDBType:
     for member in VectorDBType:
