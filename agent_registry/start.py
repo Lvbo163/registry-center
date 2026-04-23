@@ -29,7 +29,6 @@ from agent_registry.server import app
 from common.cert.cert_validater import CertValidator
 from common.custom.custom_handle import HandlerRegistry
 from common.custom.interface_type import InterfaceType
-from common.llm import get_llm_instance
 from common.log.audit_logger import LogLevel, OperationResult, OperatorObject, OperationName
 from common.util.cipher_util import DEFAULT_ENCODING
 from common.util.conf_util import conf_singleton_obj, load_cert_password, set_ssl_folder_permissions
