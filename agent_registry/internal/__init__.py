@@ -13,7 +13,6 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-from agent_registry.internal.registry_service import RegistryCenterService
-from agent_registry.internal.request_dispatcher import RequestDispatcher
+from agent_registry.internal.registry_service import RegistryCenterService, RequestDispatcher
 
 __all__ = ['RegistryCenterService', 'RequestDispatcher']
