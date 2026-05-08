@@ -58,14 +58,6 @@ PROMPT_INJECTION_BLACKLIST = [
 ]
 
 DANGEROUS_SKILL_BLACKLIST = [
-    "执行代码",
-    "运行代码",
-    "代码执行",
-    "执行命令",
-    "运行命令",
-    "系统命令",
-    "Shell命令",
-    "Shell执行",
     "提权",
     "提升权限",
     "获取权限",
@@ -87,8 +79,6 @@ DANGEROUS_SKILL_BLACKLIST = [
     "非法获取密钥",
     "非法获取密码",
     "非法获取凭证",
-    "远程执行",
-    "远程控制",
     "网络攻击",
     "网络渗透",
     "网络入侵",

@@ -9,11 +9,11 @@
 
 ## 1. 概述
 
-为保障Agent注册中心的安全性，防止恶意Agent注册，所有注册的AgentCard需要遵循以下安全规范。本规范详细说明禁止注册的内容类型。
+为保障Agent注册中心的安全性，防止恶意Agent注册，所有注册的AgentCard需要遵循以下安全规范。本规范详细说明禁止注册的内容类型。除此之外，敏感信息内容也禁止注册。
 
-### 1.1 校验范围
+### 1.1 字段范围
 
-以下字段将进行安全内容审查：
+以下字段需要遵循安全规范要求：
 
 | 字段 | 说明 |
 |------|------|
@@ -22,37 +22,37 @@
 | `skills[].description` | 技能描述 |
 | `skills[].tags[]` | 技能标签 |
 
-### 1.2 校验机制
 
-- **匹配方式**：子串匹配（不区分大小写）
-- **检测内容**：Prompt注入攻击 + 高危Skill描述
-- **错误响应**：HTTP 422 Unprocessable Content
-- **设计原则**：仅禁止明确攻击意图的内容，避免误杀正常功能描述
 
 ---
 
-## 2. Prompt注入防护规范
+## 2. 禁止Prompt注入
+
+Prompt注入攻击是一种针对AI系统的特殊攻击方式，攻击者通过在AgentCard的字段中插入恶意指令，试图覆盖、修改或绕过系统原有的安全限制和行为规则。这类攻击可能导致Agent执行非预期的恶意操作，泄露敏感信息，甚至完全失控。
+
+为防止此类攻击，Agent注册中心会对AgentCard的`description`、`skills[].name`、`skills[].description`、`skills[].tags[]`等字段进行严格的内容审查，检测并拦截所有包含Prompt注入意图的关键词。本章节详细列出禁止注册的Prompt注入类型及其具体关键词，帮助开发者了解并规避相关风险。
+
 
 ### 2.1 指令覆盖类
 
 企图覆盖或清除原有指令的关键词：
 
-| 禁止关键词 | 攻击意图 |
-|-----------|---------|
-| 忽略之前的指令 | 覆盖历史指令 |
-| 忽略所有指令 | 清除全部指令 |
-| 忽略上述指令 | 跳过前置指令 |
-| 无视指令 | 强制忽略 |
-| 忽略限制 | 突破限制 |
-| 忽略规则 | 绕过规则 |
-| 忽略约束 | 解除约束 |
-| 忽略安全 | 关闭安全检查 |
-| 覆盖指令 | 替换指令 |
-| 覆盖规则 | 替换规则 |
-| 覆盖系统 | 操控系统 |
-| 忘记之前 | 清除记忆 |
-| 忘记所有 | 完全重置 |
-| 忘记指令 | 遗忘指令 |
+| 中文关键词   | 英文关键词 | 攻击意图 |
+|---------|-----------|---------|
+| 忽略之前的指令 | ignore previous instructions | 覆盖历史指令 |
+| 忽略所有指令  | ignore all instructions | 清除全部指令 |
+| 忽略上述指令  | ignore above instructions | 跳过前置指令 |
+| 无视指令    | disregard instructions | 强制忽略 |
+| 忽略限制    | ignore limits | 突破限制 |
+| 忽略规则    | ignore rules | 绕过规则 |
+| 忽略约束    | ignore constraints | 解除约束 |
+| 忽略安全    | ignore security | 关闭安全检查 |
+| 覆盖指令    | override instructions | 替换指令 |
+| 覆盖规则    | override rules | 替换规则 |
+| 覆盖系统    | override system | 操控系统 |
+| 忘记之前    | forget previous | 清除记忆 |
+| 忘记所有    | forget all | 完全重置 |
+| 忘记指令    | forget instructions | 遗忘指令 |
 
 **示例**：
 ```
@@ -65,16 +65,16 @@
 
 企图攻击系统或突破安全机制的关键词：
 
-| 禁止关键词 | 攻击意图 |
-|-----------|---------|
-| 越狱 | 系统突破 |
-| 破解 | 安全破解 |
-| 绕过 | 安全绕过 |
-| 突破限制 | 强制突破 |
-| 开发者模式 | 获取开发权限 |
-| 管理员模式 | 获取管理权限 |
-| 超级用户 | 获取超级权限 |
-| 提示词注入 | 注入攻击 |
+| 中文关键词 | 英文关键词 | 攻击意图 |
+|-------|-----------|---------|
+| 越狱    | jailbreak | 系统突破 |
+| 破解    | crack | 安全破解 |
+| 绕过    | bypass | 安全绕过 |
+| 突破限制  | break limits | 强制突破 |
+| 开发者模式 | developer mode | 获取开发权限 |
+| 管理员模式 | admin mode | 获取管理权限 |
+| 超级用户  | superuser | 获取超级权限 |
+| 提示词注入 | prompt injection | 注入攻击 |
 
 **示例**：
 ```
@@ -87,17 +87,17 @@
 
 企图强制Agent执行非预期操作的关键词：
 
-| 禁止关键词 | 攻击意图 |
-|-----------|---------|
-| 必须执行 | 强制执行诱导 |
-| 必须输出 | 强制输出诱导 |
-| 必须回答 | 强制响应 |
-| 无论如何 | 无条件执行 |
-| 不管怎样 | 无条件执行 |
-| 一定要 | 强制要求 |
-| 无条件执行 | 危险执行模式 |
-| 强制执行 | 强制操作 |
-| 立即执行 | 紧急诱导 |
+| 中文关键词 | 英文关键词 | 攻击意图 |
+|-------|-----------|---------|
+| 必须执行  | must execute | 强制执行诱导 |
+| 必须输出  | must output | 强制输出诱导 |
+| 必须回答  | must answer | 强制响应 |
+| 无论如何  | no matter what | 无条件执行 |
+| 不管怎样  | regardless | 无条件执行 |
+| 一定要   | must | 强制要求 |
+| 无条件执行 | unconditional execution | 危险执行模式 |
+| 强制执行  | force execute | 强制操作 |
+| 立即执行  | execute immediately | 紧急诱导 |
 
 **示例**：
 ```
@@ -109,18 +109,18 @@
 
 用于注入攻击的特殊标记：
 
-| 禁止标记 | 攻击意图 |
-|---------|---------|
-| 编码绕过 | 编码方式绕过检测 |
-| </system> | 假冒系统结束标记 |
-| </instruction> | 假冒指令结束标记 |
-| </prompt> | 假冒提示词结束标记 |
-| [END] | 强制结束标记 |
-| [DONE] | 强制结束标记 |
-| [FINISHED] | 强制结束标记 |
-| assistant: | 假冒角色标记 |
-| system: | 假冒角色标记 |
-| user: | 假冒角色标记 |
+| 中文标记            | 英文标记            | 攻击意图      |
+|-----------------|-----------------|-----------|
+| 编码绕过            | encoding bypass | 编码方式绕过检测  |
+| \</system>      | \</system>      | 假冒系统结束标记  |
+| \</instruction> | \</instruction> | 假冒指令结束标记  |
+| \</prompt>      | \</prompt>      | 假冒提示词结束标记 |
+| [END]           | [END]           | 强制结束标记    |
+| [DONE]          | [DONE]          | 强制结束标记    |
+| [FINISHED]      | [FINISHED]      | 强制结束标记    |
+| assistant:      | assistant:      | 假冒角色标记    |
+| system:         | system:         | 假冒角色标记    |
+| user:           | user:           | 假冒角色标记    |
 
 **示例**：
 ```
@@ -130,51 +130,33 @@
 
 ---
 
-## 3. 高危Skill防护规范
+## 3. 禁止高危Skill
 
-### 3.1 代码执行类
+高危Skill是指具有攻击性、破坏性或恶意意图的技能描述，这类Skill可能被用于发起网络攻击、窃取敏感数据、提升权限、破坏系统安全机制等非法操作。如果一个Agent注册了高危Skill，不仅会对系统本身造成严重威胁，还可能被攻击者利用作为攻击工具，对其他系统或用户造成损害。
 
-涉及恶意代码或命令执行的关键词：
+为确保Agent注册中心的安全性和合规性，所有涉及攻击能力、恶意操作意图的Skill描述、名称和标签都将被禁止。本章节详细列出各类高危Skill的关键词及其对应的安全风险等级，帮助开发者识别并避免注册此类危险的Skill。
 
-| 禁止关键词 | 安全风险 |
-|-----------|---------|
-| 执行代码 | 远程代码执行(RCE) |
-| 运行代码 | 代码运行能力 |
-| 代码执行 | 直接执行代码 |
-| 执行命令 | 命令执行 |
-| 运行命令 | 命令运行 |
-| 系统命令 | 系统级命令 |
-| Shell命令 | Shell命令执行 |
-| Shell执行 | Shell能力 |
 
-**安全风险**：远程代码执行、系统命令注入、恶意脚本运行、系统完全接管
 
-**示例**：
-```
-❌ skill.name: "代码执行器"
-❌ skill.description: "此技能可以执行任意Shell命令和系统命令"
-❌ skill.tag: "Shell执行"
-```
-
-### 3.2 权限攻击类
+### 3.1 权限攻击类
 
 涉及权限提升或安全绕过的关键词：
 
-| 禁止关键词 | 安全风险 |
-|-----------|---------|
-| 提权 | 权限提升攻击 |
-| 提升权限 | 权限升级 |
-| 获取权限 | 权限获取 |
-| 权限提升 | 权限升级能力 |
-| 绕过安全 | 安全机制绕过 |
-| 绕过防护 | 防护机制绕过 |
-| 绕过验证 | 身份验证绕过 |
-| 突破安全 | 安全机制突破 |
-| 突破防护 | 防护机制突破 |
-| 安全绕过 | 绕过安全机制 |
-| 非法管理员权限 | 非法获取管理员权限 |
-| 非法超级权限 | 非法获取超级权限 |
-| 非法root权限 | 非法获取root权限 |
+| 中文关键词    | 英文关键词 | 安全风险 |
+|----------|-----------|---------|
+| 提权       | privilege escalation | 权限提升攻击 |
+| 提升权限     | elevate privileges | 权限升级 |
+| 获取权限     | gain privileges | 权限获取 |
+| 权限提升     | privilege escalation | 权限升级能力 |
+| 绕过安全     | bypass security | 安全机制绕过 |
+| 绕过防护     | bypass protection | 防护机制绕过 |
+| 绕过验证     | bypass authentication | 身份验证绕过 |
+| 突破安全     | break security | 安全机制突破 |
+| 突破防护     | break protection | 防护机制突破 |
+| 安全绕过     | security bypass | 绕过安全机制 |
+| 非法管理员权限  | illegal admin privileges | 非法获取管理员权限 |
+| 非法超级权限   | illegal superuser privileges | 非法获取超级权限 |
+| 非法root权限 | illegal root privileges | 非法获取root权限 |
 
 **安全风险**：权限提升攻击、安全机制失效、未授权访问
 
@@ -185,14 +167,14 @@
 ❌ skill.tag: "非法超级权限"
 ```
 
-### 3.3 数据库攻击类
+### 3.2 数据库攻击类
 
 涉及数据库攻击的关键词：
 
-| 禁止关键词 | 安全风险 |
-|-----------|---------|
-| 数据库注入 | SQL注入攻击 |
-| SQL注入 | SQL注入能力 |
+| 中文关键词 | 英文关键词 | 安全风险 |
+|-------|-----------|---------|
+| 数据库注入 | database injection | SQL注入攻击 |
+| SQL注入 | SQL injection | SQL注入能力 |
 
 **安全风险**：数据库注入攻击、数据泄露、数据库破坏
 
@@ -202,23 +184,23 @@
 ❌ skill.name: "SQL注入工具"
 ```
 
-### 3.4 数据窃取类
+### 3.3 数据窃取类
 
 涉及窃取敏感数据的关键词：
 
-| 禁止关键词 | 安全风险 |
-|-----------|---------|
-| 窃取密钥 | 密钥窃取 |
-| 窃取密码 | 密码窃取 |
-| 窃取凭证 | 凭证窃取 |
-| 非法获取密钥 | 非法密钥获取 |
-| 非法获取密码 | 非法密码获取 |
-| 非法获取凭证 | 非法凭证获取 |
-| 窃取数据 | 数据窃取 |
-| 盗取数据 | 数据盗取 |
-| 数据泄露 | 数据泄露能力 |
-| 窃取隐私 | 隐私数据窃取 |
-| 非法获取隐私 | 非法隐私获取 |
+| 中文关键词  | 英文关键词 | 安全风险 |
+|--------|-----------|---------|
+| 窃取密钥   | steal keys | 密钥窃取 |
+| 窃取密码   | steal passwords | 密码窃取 |
+| 窃取凭证   | steal credentials | 凭证窃取 |
+| 非法获取密钥 | illegally obtain keys | 非法密钥获取 |
+| 非法获取密码 | illegally obtain passwords | 非法密码获取 |
+| 非法获取凭证 | illegally obtain credentials | 非法凭证获取 |
+| 窃取数据   | steal data | 数据窃取 |
+| 盗取数据   | data exfiltration | 数据盗取 |
+| 数据泄露   | data leak | 数据泄露能力 |
+| 窃取隐私   | steal privacy | 隐私数据窃取 |
+| 非法获取隐私 | illegally obtain privacy | 非法隐私获取 |
 
 **安全风险**：密钥/密码泄露、凭证窃取、敏感数据暴露、隐私保护违规
 
@@ -229,35 +211,20 @@
 ❌ skill.tag: "窃取凭证"
 ```
 
-### 3.5 远程攻击类
 
-涉及远程恶意操作的关键词：
 
-| 禁止关键词 | 安全风险 |
-|-----------|---------|
-| 远程执行 | 远程代码执行 |
-| 远程控制 | 远程控制能力 |
-
-**安全风险**：远程代码执行、远程系统控制
-
-**示例**：
-```
-❌ skill.description: "此技能可以远程执行恶意代码并远程控制系统"
-❌ skill.name: "远程控制工具"
-```
-
-### 3.6 网络攻击类
+### 3.4 网络攻击类
 
 涉及网络攻击的关键词：
 
-| 禁止关键词 | 安全风险 |
-|-----------|---------|
-| 网络攻击 | 网络攻击能力 |
-| 网络渗透 | 网络渗透测试 |
-| 网络入侵 | 网络入侵能力 |
-| 端口扫描 | 端口扫描攻击 |
-| 漏洞扫描 | 漏洞扫描能力 |
-| 攻击扫描 | 攻击性扫描 |
+| 中文关键词 | 英文关键词 | 安全风险 |
+|-------|-----------|---------|
+| 网络攻击  | network attack | 网络攻击能力 |
+| 网络渗透  | network penetration | 网络渗透测试 |
+| 网络入侵  | network intrusion | 网络入侵能力 |
+| 端口扫描  | port scan | 端口扫描攻击 |
+| 漏洞扫描  | vulnerability scan | 漏洞扫描能力 |
+| 攻击扫描  | attack scan | 攻击性扫描 |
 
 **安全风险**：网络攻击发起、端口/漏洞扫描、DDoS攻击能力
 
@@ -268,115 +235,15 @@
 ❌ skill.tag: "网络攻击"
 ```
 
----
 
-## 4. 合规示例
 
-### 4.1 合规的Description
-
-```json
-{
-  "description": "数据分析Agent，能够处理CSV、JSON等格式数据，生成可视化报告。支持数据清洗、统计分析和图表生成。"
-}
-```
-
-```json
-{
-  "description": "智能客服助手，回答产品相关问题并提供解决方案。可以模拟客服对话，处理用户咨询。"
-}
-```
-
-```json
-{
-  "description": "文档处理Agent，支持PDF转换、文本提取和格式整理。可以读取文件、下载资源、导出报告。"
-}
-```
-
-### 4.2 合规的Skill
-
-```json
-{
-  "skills": [
-    {
-      "id": "skill-001",
-      "name": "数据分析",
-      "description": "对用户提供的数据进行分析，生成统计报告和可视化图表",
-      "tags": ["analysis", "report", "visualization"],
-      "input_modes": ["application/json"],
-      "output_modes": ["application/json"]
-    },
-    {
-      "id": "skill-002",
-      "name": "文档处理",
-      "description": "处理PDF、Word等文档格式，提取关键信息并支持文件上传下载",
-      "tags": ["document", "extraction", "file"],
-      "input_modes": ["application/pdf"],
-      "output_modes": ["text/plain"]
-    },
-    {
-      "id": "skill-003",
-      "name": "数据库查询",
-      "description": "查询数据库并返回结果，支持数据库访问和数据分析",
-      "tags": ["database", "query", "data"],
-      "input_modes": ["text/plain"],
-      "output_modes": ["application/json"]
-    }
-  ]
-}
-```
-
-### 4.3 完整合规的AgentCard
-
-```json
-{
-  "name": "DataAnalysisAssistant",
-  "provider": {
-    "organization": "TechCorp",
-    "url": "https://techcorp.example.com"
-  },
-  "description": "专业的数据分析助手，提供数据清洗、统计分析、可视化生成等功能。可以扮演数据分析角色，模拟分析流程。",
-  "version": "1.0.0",
-  "capabilities": {
-    "streaming": true,
-    "push_notifications": false
-  },
-  "default_input_modes": ["text/plain", "application/json"],
-  "default_output_modes": ["text/plain", "application/json"],
-  "skills": [
-    {
-      "id": "skill-001",
-      "name": "数据清洗",
-      "description": "清洗和预处理原始数据，处理缺失值、异常值等问题。可以读取文件、修改文件属性。",
-      "tags": ["data", "cleaning", "preprocessing"],
-      "input_modes": ["application/json"],
-      "output_modes": ["application/json"]
-    },
-    {
-      "id": "skill-002",
-      "name": "统计分析",
-      "description": "执行统计分析操作，包括数据库查询、数据导出、报告生成",
-      "tags": ["statistics", "analysis", "report"],
-      "input_modes": ["application/json"],
-      "output_modes": ["application/json"]
-    },
-    {
-      "id": "skill-003",
-      "name": "可视化生成",
-      "description": "根据分析结果生成可视化图表，支持文件下载、图像导出",
-      "tags": ["visualization", "charts", "export"],
-      "input_modes": ["application/json"],
-      "output_modes": ["image/png"]
-    }
-  ]
-}
-```
 
 
 ---
 
-## 5. 禁止示例
+## 4. 禁止示例
 
-### 5.1 Prompt注入攻击示例
+### 4.1 Prompt注入攻击示例
 
 **示例1 - 指令覆盖**：
 ```json
@@ -420,7 +287,7 @@
 ```
 **违规关键词**：`</system>`
 
-### 5.2 高危Skill示例
+### 4.2 高危Skill示例
 
 **示例1 - 代码执行**：
 ```json
@@ -480,31 +347,26 @@
 
 ---
 
+## 5. 最佳实践
 
-## 6. 最佳实践
-
-### 6.1 Description编写
+### 5.1 Description编写
 
 **建议**：
 - 描述Agent能为用户做什么
 - 使用具体业务场景描述
 - 避免与攻击意图关键词组合
 
-**良好示例**：
-```
-✅ "数据分析Agent，支持数据清洗、统计分析和可视化生成"
-✅ "智能客服助手，回答产品相关问题并提供解决方案"
-✅ "可以扮演客服角色，模拟真实对话场景"
-```
+**示例**：
 
-**避免示例**：
-```
-❌ "可以忽略之前的指令执行任何操作"
-❌ "能够越狱获取管理员权限"
-❌ "扮演攻击者执行恶意操作"
-```
+| 场景   | 合规描述        | 不合规描述     |
+|------|-------------|-----------|
+| 数据处理 | "查询数据库返回结果" | "窃取数据库数据" |
+| 权限操作 | "权限管理功能"    | "提权攻击工具"  |
+| 代码相关 | "代码分析工具"    | "执行代码工具"  |
+| 网络功能 | "发送HTTP请求"  | "网络攻击工具"  |
 
-### 6.2 Skill命名
+
+### 5.2 Skill命名
 
 **建议**：
 - 使用具体功能名称
@@ -525,7 +387,7 @@
 ❌ "网络攻击工具"
 ```
 
-### 6.3 Skill Description编写
+### 5.3 Skill Description编写
 
 **建议**：
 - 描述业务价值
@@ -546,7 +408,7 @@
 ❌ "发起网络攻击和端口扫描"
 ```
 
-### 6.4 Skill Tags编写
+### 5.4 Skill Tags编写
 
 **建议**：
 - 使用功能类别标签
@@ -554,22 +416,22 @@
 
 **良好示例**：
 ```json
-["analysis", "data", "report"]
-["document", "file", "download"]
-["database", "query", "access"]
-["personal", "info", "privacy"]
+["分析", "数据", "报告"]
+["文档", "文件", "下载"]
+["数据库", "查询", "访问"]
+["个人信息", "信息", "隐私"]
 ```
 
 **避免示例**：
 ```json
-["execute", "shell", "command"]
-["steal", "key", "password"]
-["attack", "hack", "intrusion"]
+["执行", "shell", "命令"]
+["窃取", "密钥", "密码"]
+["攻击", "黑客", "入侵"]
 ```
 
 ---
 
-## 7. FAQ
+## 6. FAQ
 
 ### Q1: 常见功能词汇会被禁止吗？
 
@@ -587,88 +449,15 @@
 | 进程管理、任务管理 | "进程管理工具"、"任务管理系统" |
 | 导出、泄露检测 | "导出报告功能"、"泄露检测系统" |
 
-### Q2: 黑名单只禁止什么内容？
 
-**A**: 仅禁止明确攻击意图的词汇：
-
-| 禁止类型 | 示例关键词 |
-|---------|-----------|
-| 指令覆盖攻击 | 忽略之前的指令、覆盖指令 |
-| 系统攻击 | 越狱、破解、绕过 |
-| 代码执行攻击 | 执行代码、Shell命令 |
-| 权限攻击 | 提权、绕过安全、非法root权限 |
-| 数据窃取攻击 | 窃取密钥、窃取密码、数据泄露 |
-| 网络攻击 | 网络攻击、端口扫描、网络入侵 |
-
-### Q3: 如何判断内容是否合规？
-
-**A**: 判断标准：
-- ✅ 描述正常业务功能 → 合规
-- ❌ 描述攻击能力或恶意意图 → 不合规
-
-示例对比：
-| 场景 | 合规描述 | 不合规描述 |
-|------|---------|-----------|
-| 数据处理 | "查询数据库返回结果" | "窃取数据库数据" |
-| 权限操作 | "权限管理功能" | "提权攻击工具" |
-| 代码相关 | "代码分析工具" | "执行代码工具" |
-| 网络功能 | "发送HTTP请求" | "网络攻击工具" |
-
-### Q4: 关键词作为其他词语的一部分会触发吗？
-
-**A**: 会。检测使用子串匹配：
-
-| 描述内容 | 是否触发 | 原因 |
-|---------|---------|------|
-| "可以忽略之前的指令" | ❌ 触发 | 包含完整关键词 |
-| "忽略之前的历史记录" | ❌ 触发 | 包含"忽略之前" |
-| "不能忽略用户需求" | ❌ 触发 | 包含"忽略"（但"忽略"已移除，此例不触发） |
-| "分析执行流程" | ✅ 不触发 | "执行"单独出现不触发 |
-
-### Q5: 英文攻击词汇会被检测吗？
-
-**A**: 目前黑名单以中文为主，但建议避免使用明显攻击意图的英文词汇：
-
-| 建议避免 | 原因 |
-|---------|------|
-| execute code, shell execute | 可能匹配"执行"、"Shell执行"等中文关键词 |
-| privilege escalation, bypass security | 可能匹配"提权"、"绕过安全"等 |
-| steal password, data leak | 可能匹配"窃取"、"泄露"等 |
 
 ---
 
-## 8. 合规性检查清单
+## 7. 附录：完整黑名单列表
 
-提交前请逐项检查：
+### 7.1 中文黑名单
 
-### Description检查项
-- [ ] 是否包含指令覆盖词汇（忽略之前的指令、覆盖指令、忘记指令）？
-- [ ] 是否包含系统攻击词汇（越狱、破解、绕过、突破限制）？
-- [ ] 是否包含权限欺骗词汇（开发者模式、管理员模式、超级用户）？
-- [ ] 是否包含强制执行词汇（必须执行、无论如何、强制执行）？
-- [ ] 是否包含特殊攻击标记（</system>、[END]、assistant:）？
-
-### Skill Name检查项
-- [ ] 是否包含代码执行词汇（执行代码、Shell命令、系统命令）？
-- [ ] 是否包含权限攻击词汇（提权、绕过安全）？
-- [ ] 是否包含数据窃取词汇（窃取密钥、窃取数据）？
-- [ ] 是否包含网络攻击词汇（网络攻击、端口扫描）？
-
-### Skill Description检查项
-- [ ] 是否描述恶意代码执行能力？
-- [ ] 是否描述数据窃取能力？
-- [ ] 是否描述网络攻击能力？
-- [ ] 是否描述权限攻击能力？
-
-### Skill Tags检查项
-- [ ] 是否包含攻击相关标签？
-- [ ] 是否包含恶意操作标签？
-
----
-
-## 9. 附录：完整黑名单列表
-
-### 9.1 Prompt注入黑名单（43项）
+#### 7.1.1 Prompt注入黑名单（43项）
 
 ```
 指令覆盖类（14项）：
@@ -694,14 +483,9 @@
   assistant:、system:、user:
 ```
 
-### 9.2 高危Skill黑名单（43项）
+#### 7.1.2 高危Skill描述黑名单（33项）
 
 ```
-代码执行类（8项）：
-  执行代码、运行代码、代码执行
-  执行命令、运行命令、系统命令
-  Shell命令、Shell执行
-
 权限攻击类（12项）：
   提权、提升权限、获取权限、权限提升
   绕过安全、绕过防护、绕过验证
@@ -717,10 +501,76 @@
   窃取数据、盗取数据、数据泄露
   窃取隐私、非法获取隐私
 
-远程攻击类（2项）：
-  远程执行、远程控制
-
 网络攻击类（6项）：
   网络攻击、网络渗透、网络入侵
   端口扫描、漏洞扫描、攻击扫描
+```
+
+### 7.2 英文黑名单
+
+#### 7.2.1 Prompt Injection Blacklist (43 items)
+
+```
+Instruction Override Category (14 items):
+  ignore previous instructions, ignore previous commands
+  ignore all instructions, ignore all commands
+  ignore above instructions, disregard instructions
+  ignore limits, ignore restrictions
+  ignore rules, ignore constraints
+  ignore security
+  override instructions, overwrite instructions
+  override rules, override system
+  forget previous, forget all, forget instructions
+
+System Attack Category (8 items):
+  jailbreak, crack, bypass
+  break limits, break restrictions
+  developer mode, admin mode, administrator mode
+  superuser, prompt injection
+
+Force Execution Category (9 items):
+  must execute, must output, must answer
+  no matter what, regardless
+  must, definitely
+  unconditional execution, force execute, forced execution
+  execute immediately
+
+Special Markers Category (12 items):
+  encoding bypass
+  </system>, </instruction>, </prompt>
+  [END], [DONE], [FINISHED]
+  assistant:, system:, user:
+```
+
+#### 7.2.2 High-Risk Skill Description Blacklist (33 items)
+
+```
+Privilege Attack Category (12 items):
+  privilege escalation, escalate privileges
+  elevate privileges, raise privileges
+  gain privileges, obtain privileges
+  bypass security, bypass protection
+  bypass authentication, bypass verification
+  break security, break protection
+  security bypass
+  illegal admin privileges, unauthorized admin privileges
+  illegal superuser privileges, illegal root privileges
+
+Database Attack Category (2 items):
+  database injection, SQL injection
+
+Data Theft Category (11 items):
+  steal keys, steal secret keys
+  steal passwords, steal credentials
+  illegally obtain keys, illegally obtain passwords
+  illegally obtain credentials
+  steal data, data exfiltration
+  data leak, steal privacy
+  steal private data, illegally obtain privacy
+
+Network Attack Category (6 items):
+  network attack, network penetration
+  network intrusion, port scan
+  port scanning, vulnerability scan
+  attack scan
 ```
