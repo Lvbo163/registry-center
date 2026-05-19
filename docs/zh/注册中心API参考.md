@@ -1,29 +1,29 @@
-# 1.注册中心API参考
+﻿# 注册中心API参考
 
-## 1.1 注册AgentCard
+## 注册AgentCard
 
-### 1.1.1 典型场景
+### 典型场景
 
 运营商或设备厂商需要注册新AgentCard时，可通过调用该接口在注册中心组件中创建新的AgentCard信息
 
-### 1.1.2 接口功能
+### 接口功能
 
 - 注册指定AgentCard信息到注册中心
 
-### 1.1.3 接口约束
+### 接口约束
 
 - 单次注册AgentCard信息报文大小不得超过1024K
 - 单实例上该接口最大并发数为50
 
-### 1.1.4 调用方法
+### 调用方法
 
 POST
 
-### 1.1.5 URI
+### URI
 
 /rest/v1/registry-center/agent-cards
 
-### 1.1.6 请求参数
+### 请求参数
 
 - body参数列表:
 
@@ -89,7 +89,7 @@ POST
 | inputMmodes | 否  | array of string | -    | -   | 支持的输入媒体类型列表（MIME 类型）           | `["text/plain", "application/json"]`                         |
 | outputModes | 否  | array of string | -    | -   | 支持的输出媒体类型列表（MIME 类型）           | `["text/plain", "application/json"]`                         |
 
-### 1.1.7 请求示例
+### 请求示例
 
 ```json
 POST /rest/v1/registry-center/agent-cards HTTP/1.1
@@ -167,11 +167,11 @@ Content-Type: application/json
 }
 ```
 
-### 1.1.8 响应参数
+### 响应参数
 
 - 无
 
-### 1.1.9 响应示例
+### 响应示例
 
 - 返回状态码201：注册成功
 
@@ -221,33 +221,33 @@ AgentCard参数校验失败
 }
 ```
 
-## 1.2 查询AgentCard列表
+## 查询AgentCard列表
 
-### 1.2.1 典型场景
+### 典型场景
 
 当用户需要查询Agent信息时，可以通过该接口来返回Agent列表。
 
-### 1.2.2 接口功能
+### 接口功能
 
 - 根据Agent名称和组织机构进行**精确匹配查询**，
 - 支持多条件组合查询（AND逻辑）
 - 所有查询参数均为可选，不提供任何参数时返回所有已注册的Agent列表。
 
-### 1.2.3 接口约束
+### 接口约束
 
 - 当不提供任何参数时，返回系统中所有已注册的Agent列表（默认注册上限为100个），
 - 提供参数时，按实际情况返回，最少返回0个
 - 单实例上该接口最大并发数为100
 
-### 1.2.4 调用方法
+### 调用方法
 
 GET
 
-### 1.2.5 URI
+### URI
 
 /rest/v1/registry-center/agent-cards
 
-### 1.2.6 请求参数
+### 请求参数
 
 - query参数列表，请求参数通过URL查询字符串传递
 
@@ -256,7 +256,7 @@ GET
 | name         | string | 否  | -   | Agent 名称，进行精确匹配查询。支持大小写敏感匹配。 |
 | organization | string | 否  | -   | 组织机构名称，进行精确匹配查询。支持大小写敏感匹配。   |
 
-### 1.2.7 请求示例
+### 请求示例
 
 - 查询所有Agent
 
@@ -290,13 +290,13 @@ Host: your-domain.com
 Content-Type: application/json
 ```
 
-### 1.2.8 响应参数
+### 响应参数
 
 | 参数名称 | 类型     | 参数值域 | 默认值 | 参数说明         | 参数示例              |
 |------|--------|------|-----|--------------|-------------------|
 | -    | object | {}   | -   | 符合要求的Agent列表 | 参考响应示例中的状态码200的响应 |
 
-### 1.2.9 响应示例
+### 响应示例
 
 - 返回状态码200：查询成功
 
@@ -373,29 +373,29 @@ Content-Type: application/json
 }
 ```
 
-## 1.3 查询指定AgentCard
+## 查询指定AgentCard
 
-### 1.3.1 典型场景
+### 典型场景
 
 - 根据用户输入的name和organization参数，精准查询name和organization对应的Agent。
 
-### 1.3.2 接口功能
+### 接口功能
 
 - 根据Agent的name和organization的唯一组合，精确查询并返回单个Agent的完整详细信息，查不到返回null。
 
-### 1.3.3 接口约束
+### 接口约束
 
 - 单实例上该接口最大并发数为100
 
-### 1.3.4 调用方法
+### 调用方法
 
 GET
 
-### 1.3.5 URI
+### URI
 
 /rest/v1/registry-center/agent-cards/{organization}/{name}
 
-### 1.3.6 请求参数
+### 请求参数
 
 - path参数列表
 
@@ -404,7 +404,7 @@ GET
 | name         | string | 是  | Agent名称，作为路径参数传递。用于唯一标识Agent的组成部分之一。        |
 | organization | string | 是  | Agent所属的组织机构名称，作为查询参数传递。与name共同唯一标识一个Agent。 |
 
-### 1.3.7 请求示例
+### 请求示例
 
 ```json
 GET /rest/v1/registry-center/agent-cards/Huawei/RAN%20Energy%20Saving%20Agent HTTP/1.1
@@ -412,13 +412,13 @@ Host: your-domain.com
 Content-Type: application/json
 ```
 
-### 1.3.8 响应参数
+### 响应参数
 
 | 参数名称 | 类型     | 参数值域   | 默认值 | 参数说明       | 参数示例              |
 |------|--------|--------|-----|------------|-------------------|
 | -    | object | ocject | -   | 符合要求的Agent | 参考响应示例中的状态码200的响应 |
 
-### 1.3.9 响应示例
+### 响应示例
 
 - 返回状态码200：查询成功
 
@@ -495,29 +495,29 @@ Content-Type: application/json
 }
 ```
 
-## 1.4 更新指定AgentCard
+## 更新指定AgentCard
 
-### 1.4.1 典型场景
+### 典型场景
 
 - 已注册的Agent的信息如果有变更，则需要用户调用该接口来进行Agent信息的更新。
 
-### 1.4.2 接口功能
+### 接口功能
 
 - 完全替换一个已存在的Agent。该接口使用请求体中的完整AgentCard数据替换现有Agent的全部信息。请求体中的名称和组织机构必须与路径参数和查询参数匹配。
 
-### 1.4.3 接口约束
+### 接口约束
 
 - 单实例上该接口最大并发数为100
 
-### 1.4.4 调用方法
+### 调用方法
 
 PUT
 
-### 1.4.5 URI
+### URI
 
 /rest/v1/registry-center/agent-cards/{organization}/{name}
 
-### 1.4.6 请求参数
+### 请求参数
 
 - path参数列表
 
@@ -526,7 +526,7 @@ PUT
 | name         | string | 是  | 待更新的Agent名称，作为路径参数传递。该值必须与请求体中的name字段匹配。            |
 | organization | string | 是  | 待更新Agent的组织机构名称。该值必须与请求体中provider.organization字段匹配。 |
 
-### 1.4.7 请求示例
+### 请求示例
 
 ```json
 PUT /rest/v1/registry-center/agent-cards/Huawei/RAN%20Energy%20Saving%20Agent HTTP/1.1
@@ -604,10 +604,10 @@ Content-Type: application/json
 }
 ```
 
-### 1.4.8 响应参数
+### 响应参数
 - 无
 
-### 1.4.9 响应示例
+### 响应示例
 
 - 返回状态码200：修改成功
 
@@ -640,29 +640,29 @@ Content-Type: application/json
 }
 ```
 
-## 1.5 删除指定AgentCard
+## 删除指定AgentCard
 
-### 1.5.1 典型场景
+### 典型场景
 
 - 已注册的Agent的如果想要注销，需要用户调用该接口来进行Agent信息的注销。
 
-### 1.5.2 接口功能
+### 接口功能
 
 - 从Agent注册中心中移除指定的Agent。该操作会彻底删除Agent的注册信息，删除后该Agent将无法被工作流调度使用。
 
-### 1.5.3 接口约束
+### 接口约束
 
 - 单实例上该接口最大并发数为50
 
-### 1.5.4 调用方法
+### 调用方法
 
 DELETE
 
-### 1.5.5 URI
+### URI
 
 /rest/v1/registry-center/agent-cards/{organization}/{name}
 
-### 1.5.6 请求参数
+### 请求参数
 
 - path参数列表
 
@@ -671,7 +671,7 @@ DELETE
 | name         | string | 是  | 待注销的Agent名称，作为路径参数传递。用于唯一标识要删除的Agent。        |
 | organization | string | 是  | 待注销Agent的组织机构名称，作为查询参数传递。与name共同唯一标识一个Agent。 |
 
-### 1.5.7 请求示例
+### 请求示例
 
 ```json
 DELETE /rest/v1/registry-center/agent-cards/Huawei/RAN%20Energy%20Saving%20Agent HTTP/1.1
@@ -679,10 +679,10 @@ Host: your-domain.com
 Content-Type: application/json
 ```
 
-### 1.5.8 响应参数
+### 响应参数
 - 无
 
-### 1.5.9 响应示例
+### 响应示例
 
 - 返回状态码200：删除成功
 
@@ -700,29 +700,29 @@ Content-Type: application/json
 }
 ```
 
-## 1.6 按语义检索AgentCard
+## 按语义检索AgentCard
 
-### 1.6.1 典型场景
+### 典型场景
 
 - 用户输入一段自然语言描述的任务需求，系统可识别任务语义意图，并返回与任务最匹配的Agent列表，供用户选择调用。
 
-### 1.6.2 接口功能
+### 接口功能
 
 - 该接口接收自然语言任务描述作为输入，通过语义理解能力分析任务意图，最终输出与任务最匹配的Agent列表。
 
-### 1.6.3 接口约束
+### 接口约束
 
 - 单实例上该接口最大并发数为100
 
-### 1.6.4 调用方法
+### 调用方法
 
 POST
 
-### 1.6.5 URI
+### URI
 
 /rest/v1/registry-center/agent-cards/semantic-query
 
-### 1.6.6 请求参数
+### 请求参数
 
 - body参数列表
 
@@ -730,7 +730,7 @@ POST
 |------|--------|----|-----|----------------------------------------|
 | task | string | 是  | -   | 自然语言任务描述，用于语义检索相关Agent。例如："需要查询意图报告"等。 |
 
-### 1.6.7 请求示例
+### 请求示例
 
 - 基本检索
 
@@ -743,13 +743,13 @@ Content-Type: application/json
 }
 ```
 
-### 1.6.8 响应参数
+### 响应参数
 
 | 参数名称 | 类型     | 参数值域 | 默认值 | 参数说明         | 参数示例              |
 |------|--------|------|-----|--------------|-------------------|
 | -    | object | {}   | -   | 符合要求的Agent列表 | 参考响应示例中的状态码200的响应 |
 
-### 1.6.9 响应示例
+### 响应示例
 
 - 返回状态码200：查询成功
 
@@ -826,9 +826,9 @@ Content-Type: application/json
 }
 ```
 
-## 1.7 FAQ
+## FAQ
 
-### 1.7.1 HTTP Code返回429
+### HTTP Code返回429
 
 **错误原因：** 客户端在短时间内发送了过多请求，超过了接口的访问频率限制。
 
@@ -844,7 +844,7 @@ Content-Type: application/json
 }
 ```
 
-### 1.7.2 HTTP Code返回500
+### HTTP Code返回500
 
 **错误原因：** 服务器内部发生未预期的异常错误，导致无法正常处理当前请求
 
@@ -860,7 +860,7 @@ Content-Type: application/json
 }
 ```
 
-### 1.7.3 HTTP Code返回503
+### HTTP Code返回503
 
 **错误原因：** 服务器当前处于过载状态，并发请求数量超过服务器的处理能力上限
 
