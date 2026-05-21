@@ -15,18 +15,21 @@ class AgentCardSigner:
     def __init__(
         self,
         private_key_path: str,
+        cert_path: str,
         password_path: Optional[str] = None,
         jku_url: Optional[str] = None,
         algorithm: str = "RS256",
         sign_enabled: bool = True
     ):
         self.private_key_path = private_key_path
+        self.cert_path = cert_path
         self.password_path = password_path
         self.jku_url = jku_url
         self.algorithm = algorithm
         self.sign_enabled = sign_enabled
         self._private_key = None
         self._password = None
+        self._kid = None
         self._algorithm_map = {
             "RS256": hashes.SHA256(),
             "RS384": hashes.SHA384(),
@@ -35,6 +38,7 @@ class AgentCardSigner:
 
         if self.sign_enabled:
             self._load_credentials()
+            self._load_cert()
 
     def is_enabled(self) -> bool:
         return self.sign_enabled
@@ -58,6 +62,19 @@ class AgentCardSigner:
             logger.info("Private key loaded successfully")
         except Exception as e:
             logger.error(f"Failed to load private key: {e}")
+            raise
+
+    def _load_cert(self):
+        try:
+            with open(self.cert_path, 'rb') as f:
+                cert_data = f.read()
+
+            cert = x509.load_pem_x509_certificate(cert_data, default_backend())
+            self._kid = format(cert.serial_number, 'x')
+
+            logger.info(f"Certificate loaded successfully, kid={self._kid}")
+        except Exception as e:
+            logger.error(f"Failed to load certificate: {e}")
             raise
 
     def _canonicalize_agent_card(self, agent_card: Dict[str, Any]) -> Dict[str, Any]:
@@ -128,7 +145,7 @@ class AgentCardSigner:
 
             signature = self._create_signature(canonical_json)
 
-            kid = self.jku_url.split('/')[-1] if self.jku_url else "default_kid"
+            kid = self._kid
             jwk_header = self._create_jwk_header(kid)
 
             new_sig = AgentCardSignature()
