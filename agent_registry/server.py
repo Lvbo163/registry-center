@@ -765,6 +765,15 @@ async def get_jwks(request: Request):
     Return public key in JWK Set format for JWT signature verification.
     This endpoint does not require authentication.
     """
+    enable_https = config.get('enable_https', 'true').lower() == 'true'
+    sign_enabled = config.get('registry.sign.enabled', 'false').lower() == 'true'
+
+    if not enable_https or not sign_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="JWK endpoint is not available when HTTPS or registry signing is disabled"
+        )
+
     if jwk_rate_item and not await async_hit(jwk_rate_item, request.client.host):
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
@@ -781,8 +790,8 @@ async def get_jwks(request: Request):
     except CertLoadError as e:
         logger.error(f"Failed to load JWK: {e}")
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Unable to load JWK certificate"
         )
     except Exception as e:
         logger.error(f"Unexpected error in JWK endpoint: {e}")
