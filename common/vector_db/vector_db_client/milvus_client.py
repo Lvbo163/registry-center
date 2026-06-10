@@ -1,6 +1,8 @@
 # Copyright (c) 2026 Huawei Technologies Co., Ltd.
 # All Rights Reserved.
 #
+# SPDX-License-Identifier: Apache-2.0
+#
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
 #    not use this file except in compliance with the License. You may obtain
 #    a copy of the License at
@@ -19,7 +21,7 @@ from pymilvus import MilvusClient, DataType, MilvusException
 from loguru import logger
 
 from agent_registry.config import AGENT_NUM_MAX
-from common.util.config_util import get_conf
+from common.util.app_config import get_conf
 from common.vector_db.vector_db_client.config.vector_db_client import VectorDBClient
 from common.vector_db.vector_db_client.config.vector_db_client_registry import vectordb_tool_register
 from common.vector_db.vector_db_client.config.vector_db_config import VectorDBType

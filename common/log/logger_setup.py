@@ -1,6 +1,8 @@
 # Copyright (c) 2026 Huawei Technologies Co., Ltd.
 # All Rights Reserved.
 #
+# SPDX-License-Identifier: Apache-2.0
+#
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
 #    not use this file except in compliance with the License. You may obtain
 #    a copy of the License at
@@ -20,7 +22,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from loguru import logger
 
-from common.util.config_util import get_root_path
+from common.util.app_config import get_root_path
 
 root_path = get_root_path()
 _LOG_DIR = Path(root_path) / "log"

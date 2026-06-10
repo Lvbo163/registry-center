@@ -1,6 +1,8 @@
 # Copyright (c) 2026 Huawei Technologies Co., Ltd.
 # All Rights Reserved.
 #
+# SPDX-License-Identifier: Apache-2.0
+#
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
 #    not use this file except in compliance with the License. You may obtain
 #    a copy of the License at
@@ -59,7 +61,7 @@ from agent_registry.signature.public_key_manager import PublicKeyManager
 from common.custom.custom_handle import HandlerRegistry
 from common.custom.interface_type import InterfaceType
 from common.log.audit_logger import OperationResult, LogLevel, OperatorObject, OperationName
-from common.util.config_util import get_conf
+from common.util.app_config import get_conf
 from common.cert.cert_cn_parser import validate_cn
 
 # ---------- Rate Limiter Setup (In-Memory) ----------
@@ -765,6 +767,15 @@ async def get_jwks(request: Request):
     Return public key in JWK Set format for JWT signature verification.
     This endpoint does not require authentication.
     """
+    enable_https = config.get('enable_https', 'true').lower() == 'true'
+    sign_enabled = config.get('registry.sign.enabled', 'false').lower() == 'true'
+
+    if not enable_https or not sign_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="JWK endpoint is not available when HTTPS or registry signing is disabled"
+        )
+
     if jwk_rate_item and not await async_hit(jwk_rate_item, request.client.host):
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
@@ -781,8 +792,8 @@ async def get_jwks(request: Request):
     except CertLoadError as e:
         logger.error(f"Failed to load JWK: {e}")
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Unable to load JWK certificate"
         )
     except Exception as e:
         logger.error(f"Unexpected error in JWK endpoint: {e}")

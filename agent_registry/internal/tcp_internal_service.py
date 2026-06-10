@@ -1,6 +1,8 @@
 # Copyright (c) 2026 Huawei Technologies Co., Ltd.
 # All Rights Reserved.
 #
+# SPDX-License-Identifier: Apache-2.0
+#
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
 #    not use this file except in compliance with the License. You may obtain
 #    a copy of the License at
@@ -23,7 +25,7 @@ from pydantic import ValidationError
 from agent_registry.internal.protocols.request import InternalRequest
 from agent_registry.internal.registry_center_internal_service import RequestDispatcher
 from agent_registry.registry_instance import get_registry
-from common.util.config_util import get_conf
+from common.util.app_config import get_conf
 
 
 DEFAULT_TCP_PORT = 1108

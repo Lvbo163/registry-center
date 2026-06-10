@@ -1,6 +1,8 @@
 # Copyright (c) 2026 Huawei Technologies Co., Ltd.
 # All Rights Reserved.
 #
+# SPDX-License-Identifier: Apache-2.0
+#
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
 #    not use this file except in compliance with the License. You may obtain
 #    a copy of the License at
@@ -31,7 +33,7 @@ from agent_registry.persistence import StorageRegistry, StorageBackend
 from agent_registry.persistence.base import AgentRecord
 from agent_registry.prompts import build_agent_selection_prompt
 from common.llm import get_llm_instance, get_embed_instance
-from common.util.config_util import get_root_path
+from common.util.app_config import get_root_path
 from common.vector_db.vector_db_client.config.vector_db_client_registry import get_or_create_vectordb_tool_instance
 from common.vector_db.vector_db_client.config.vector_db_config import VectorDBType, get_vectordb_config_by_type
 

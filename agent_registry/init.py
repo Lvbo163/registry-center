@@ -8,7 +8,7 @@ from loguru import logger
 
 from common.cert.cert_parser import parse_cer_certificate, parse_pem_files
 from common.util.cipher_util import encrypt, DEFAULT_ENCODING
-from common.util.config_util import get_root_path
+from common.util.app_config import get_root_path
 from common.util.password_util import input_password_with_validation
 
 
@@ -411,6 +411,8 @@ class InitCommand:
     def _get_persistence_config_header(self) -> str:
         return """# Copyright (c) 2026 Huawei Technologies Co., Ltd.
 # All Rights Reserved.
+#
+# SPDX-License-Identifier: Apache-2.0
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
 #    not use this file except in compliance with the License. You may obtain
