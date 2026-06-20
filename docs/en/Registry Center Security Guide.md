@@ -57,7 +57,7 @@ Enable HTTPS (y/n, default: true):  y
 Configure server TLS certificate (RSA only):
 # Supports specifying relative and absolute paths. Relative paths are based on the project root path
 Enter server certificate path ssl_certfile: (current: etc/ssl/server.cer): /testdir/test_server.cer
-Enter server private key path ssl_keyfile: (current: etc/ssl/serve_key.pem): /testdir/test_key.pem
+Enter server private key path ssl_keyfile: (current: etc/ssl/server_key.pem): /testdir/test_key.pem
 Enter server trust certificate path ssl_ca_certs: (current: etc/ssl/trust.cer): /testdir/trust.cer
 # Certificate revocation list, can be left blank
 Enter server CRL file path ssl_cert_certs:
@@ -326,7 +326,7 @@ When this feature is not enabled, registered Agents are in the published state b
 When the review feature is enabled, registered Agents are in the registered state by default, and administrators can query all agent information (including agents whose state is not published) via the CLI command line.<br>
 Administrators can further query AgentCards in the registered state via the CLI command line for manual review.<br>
 After the administrator approves the agent, they can execute the CLI command to approve the agent, and the agent's state will change to published.<br>
-For CLI command line usage, refer to the [Registry Center User Guide "Management Capabilities (CLI)" section](./Registry%20Center%20User%20Guide.md#cli-management), which includes operations such as Agent management and tag management.
+For CLI command line usage, refer to the [Registry Center User Guide "Management Capabilities (CLI)" section](./Registry%20Center%20User%20Guide.md#management-capabilities-cli), which includes operations such as Agent management and tag management.
 
 ## Self-Signed Certificate Generation Tool
 
