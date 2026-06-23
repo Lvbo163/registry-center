@@ -1,4 +1,4 @@
-# Registry Center Development Guide
+﻿# Registry Center Development Guide
 
 ## Feature Overview
 
@@ -532,26 +532,26 @@ The Registry Center provides a CLI command-line tool for local management of Age
 
     ```bash
     # Query Agent list
-    registry agent list
+    agent list
 
     # Query Agent details
-    registry agent get --name "RAN Energy Saving Agent" --org "Huawei"
+    agent get --agent-name "RAN Energy Saving Agent" --org "Huawei"
 
     # Approve an Agent (requires approval feature to be enabled)
-    registry agent approve --name "RAN Energy Saving Agent" --org "Huawei"
+    agent approve --agent-name "RAN Energy Saving Agent" --org "Huawei"
     ```
 
 3. Tag management commands
 
     ```bash
     # Create a tag
-    registry tag create --name "wireless"
+    registry tag create --agent-name "wireless"
 
     # Query tag list
     registry tag list
 
     # Set tags for an Agent
-    registry agent set-tags -n "RAN Energy Saving Agent" -o "Huawei" -t "wireless,energy-saving"
+    agent set-tags -n "RAN Energy Saving Agent" -o "Huawei" -t "wireless,energy-saving"
 
     # Delete a tag
     registry tag delete --id "tag-uuid"

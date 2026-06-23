@@ -149,7 +149,7 @@ audit_log_backup_count=4
 The recording format is a JSON string, with examples as follows:<br>
 - Service start operation:
 ```json
-{"time": "2026-05-11T13:03:54Z", "clientIP": "", "userName": "root", "level": "Critical", "operationName": "Start Service", "object": "Service", "result": "Success", "details": {"ip": "10.244.183.56", "port": "1107"}}
+{"time": "2026-05-11T13:03:54Z", "clientIP": "", "userName": "root", "level": "Critical", "operationName": "Start Service", "object": "Service", "result": "Success", "details": {"ip": "10.244.183.56", "port": "1108"}}
 ```
 - AgentCard registration operation:<br>
 Success scenario:
@@ -186,6 +186,7 @@ AgentCard only supports Chinese and English. AgentCard must not carry sensitive/
 ### Blocking AgentCard Registration with Malicious Intent
 
 In the AgentCard registration REST interface, the following fields in the AgentCard are subject to prompt injection validation and high-risk skill checks:<br>
+- name
 - description
 - skill.name
 - skill.description
