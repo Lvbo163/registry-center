@@ -1,3 +1,21 @@
+﻿<!--
+Copyright (c) 2026 Huawei Technologies Co., Ltd.
+All Rights Reserved.
+
+SPDX-License-Identifier: Apache-2.0
+
+   Licensed under the Apache License, Version 2.0 (the "License"); you may
+   not use this file except in compliance with the License. You may obtain
+   a copy of the License at
+
+        http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+   WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+   License for the specific language governing permissions and limitations
+   under the License.
+-->
 # Registry Center API Reference
 
 ## Before You Begin
@@ -373,7 +391,7 @@
 
 - Description
 
-    Based on the unique combination of Agent name and organization, precisely query and return the complete details of a single Agent. Returns null if not found.
+    Based on the unique combination of Agent name and organization, precisely query and return the complete details of a single Agent. Returns 404 status code with error message if not found.
 
 - Interface Constraints
 
@@ -621,7 +639,7 @@
     | 400 | Parameter validation failed.         |
     | 401 | Signature verification failed.       |
     | 403 | Permission denied.                   |
-    | 404 | Update failed, Agent not found.      |
+| 404 | Query failed, Agent not found.      |
     | 422 | Update failed, AgentCard parameter validation failed. |
     | 503 | Service busy.                        |
 
