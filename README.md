@@ -195,7 +195,20 @@ See the [API Reference](docs/en/Registry%20Center%20API%20Reference.md) for full
 | `etc/conf/server.properties` | TLS versions, ciphers, connection/timeout/rate limits |
 | `etc/conf/persistence.conf` | Storage backend: `file` (default), `postgresql` |
 | `etc/conf/log_config.conf` | Audit log rotation (size, backup count) |
-| `common/config/llm_config.json` | LLM model endpoints for semantic search (OpenAI-compatible or AOC) |
+| `.env` | Local secrets (gitignored); model definitions live in `common/config/models.yaml` |
+
+Model definitions live in the gitignored `common/config/models.yaml` (copy
+[`models.yaml.example`](common/config/models.yaml.example)), while secrets come
+from environment variables or a local gitignored `.env` (see
+[`.env.example`](.env.example)). Built-in `openai_compatible` (`openai` alias) and `aoc_signed` profiles
+provide request/response contracts, while each `models:` entry sets `model` and
+`url` and names its secret through `api_key_env` or `auth.<field>_env`. The same
+structure is used by Orchestration Center. Environment variables override
+`.env`; restart the process after changing either source. A new model using an
+existing protocol needs only configuration; a new protocol registers a profile
+in `common/llm/config/model_sources.py` and adds tests.
+Existing installations can run `python -m scripts.migrate_llm_config` once;
+the application no longer reads or tracks the old JSON.
 
 Configure interactively:
 

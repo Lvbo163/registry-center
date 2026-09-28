@@ -776,7 +776,7 @@ SPDX-License-Identifier: Apache-2.0
 
 - 功能描述
 
-    该接口接收自然语言任务描述作为输入，通过语义理解能力分析任务意图，最终输出与任务最匹配的Agent列表。语义检索依赖LLM服务，需在common/config/llm_config.json中配置可用的chat模型；LLM服务不可用时返回200和空agentCards列表，与无匹配Agent不可区分。
+    该接口接收自然语言任务描述作为输入，通过语义理解能力分析任务意图，最终输出与任务最匹配的Agent列表。语义检索依赖 LLM 服务，需通过环境变量或 `.env` 配置可用的 chat 模型；LLM 服务不可用时返回 200 和空 agentCards 列表，与无匹配 Agent 不可区分。
 
 - 接口约束
 
