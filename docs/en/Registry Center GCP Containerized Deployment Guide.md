@@ -130,6 +130,37 @@ Invoke-RestMethod -Uri "https://xxxxx.run.app/rest/v1/registry-center/agent-card
 
 ---
 
+## Configure the Model File
+
+`common/config/models.yaml` is deliberately not built into the image (it is listed in
+`.dockerignore`), so a fresh container has no model definition. The service still starts and serves
+requests, but every LLM-backed feature stays unavailable — semantic Agent matching returns
+`{"agentCards":[]}`, which is indistinguishable from "no match".
+
+Two ways to supply the file:
+
+1. **Docker Compose** — `docker-compose.yml` bind-mounts
+   `${LLM_CONFIG_HOST_FILE:-./common/config/models.yaml}`. Keep a complete file at that path.
+2. **Cloud Run** — the container entrypoint (`bin/entrypoint.sh`) turns environment variables into
+   a secret-free `models.yaml` before the service starts:
+
+   ```powershell
+   gcloud run services update registry-center --region=asia-east1 --project="YOUR_PROJECT_ID" --update-env-vars="LLM_CHAT_MODEL=deepseek-chat,LLM_CHAT_URL=https://api.deepseek.com/v1/chat/completions"
+   ```
+
+   Inject `LLM_CHAT_API_KEY` through your deployment's secret mechanism. Do not put real keys into
+   this command or shell history.
+
+The generated entry contains `provider: openai_compatible`, `model`, `url`, and — only when the key
+variable is set — `api_key_env: LLM_CHAT_API_KEY`; the key value itself is never written to disk. An
+existing `models.yaml` is never overwritten, so a bind-mounted file always wins. Only the `chat`
+capability is generated this way: provide a complete `models.yaml` (a custom image or a mounted
+volume) when `embed` is needed. Setting just one of `LLM_CHAT_MODEL` / `LLM_CHAT_URL`, or asking for
+a provider such as `aoc_signed`, makes the container exit with a message instead of starting
+half-configured. Field reference: [LLM configuration](../../common/config/README_en.md).
+
+---
+
 ## API Endpoints
 
 Once deployed, you can manage Agent Cards through the following endpoints:

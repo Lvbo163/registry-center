@@ -1,4 +1,4 @@
-﻿<!--
+<!--
 Copyright (c) 2026 Huawei Technologies Co., Ltd.
 All Rights Reserved.
 
@@ -776,7 +776,7 @@ SPDX-License-Identifier: Apache-2.0
 
 - 功能描述
 
-    该接口接收自然语言任务描述作为输入，通过语义理解能力分析任务意图，最终输出与任务最匹配的Agent列表。语义检索依赖 LLM 服务，需通过环境变量或 `.env` 配置可用的 chat 模型；LLM 服务不可用时返回 200 和空 agentCards 列表，与无匹配 Agent 不可区分。
+    该接口接收自然语言任务描述作为输入，通过语义理解能力分析任务意图，最终输出与任务最匹配的Agent列表。语义检索依赖 LLM 服务，需在 `common/config/models.yaml` 中配置可用的 `chat` 能力（该条目通过 `api_key_env` 指明密钥所在的环境变量，值放在进程环境变量或 `.env`）；LLM 服务不可用时返回 200 和空 agentCards 列表，与无匹配 Agent 不可区分。
 
 - 接口约束
 
