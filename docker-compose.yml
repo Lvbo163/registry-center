@@ -11,6 +11,9 @@ services:
       - ./etc/ssl:/opt/registry-center/etc/ssl
       - ./etc/sign_cert:/opt/registry-center/etc/sign_cert
       - ./log:/opt/registry-center/log
+      - ${LLM_CONFIG_HOST_FILE:-./common/config/models.yaml}:/opt/registry-center/common/config/models.yaml:ro
+    env_file:
+      - .env
     environment:
       - REGISTRY_IP=0.0.0.0
       - REGISTRY_PORT=5000

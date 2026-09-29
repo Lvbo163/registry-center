@@ -63,7 +63,7 @@ class RegistryCore:
                  persistence_metadata_file: str = PERSISTENCE_METADATA_FILE,
                  use_vectordb: bool = USE_VECTORDB,
                  persistence_mode: str = PERSISTENCE_MODE, persistence_conf: dict = PERSISTENCE_CONF):
-        self.llm = get_llm_instance()
+        self._llm = None
         self.use_vectordb = use_vectordb
         self.persistence_mode = persistence_mode
         self.persistence_conf = persistence_conf
@@ -88,6 +88,19 @@ class RegistryCore:
             }
             self.storage = StorageRegistry.get_backend('file', file_storage_conf)
             logger.info(f"Registry initialized with file storage at {data_path}")
+
+    @property
+    def llm(self):
+        """Return the chat model, resolving it on first use.
+
+        The model definition lives in a local models.yaml, so resolving it in the
+        constructor would stop the service from starting when a host has none.
+        Deferring the lookup keeps registration and exact search usable, and the
+        caller that needs the model reports the missing definition instead.
+        """
+        if self._llm is None:
+            self._llm = get_llm_instance()
+        return self._llm
 
     def initialize(self):
         """Initialize storage backend for file or PostgreSQL mode."""

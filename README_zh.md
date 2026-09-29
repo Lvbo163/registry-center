@@ -195,7 +195,17 @@ flowchart TB
 | `etc/conf/server.properties` | TLS 协议版本、密码套件、连接/超时/流控参数 |
 | `etc/conf/persistence.conf` | 存储后端：`file`（默认）、`postgresql` |
 | `etc/conf/log_config.conf` | 审计日志轮转参数（文件大小、备份数量） |
-| `common/config/llm_config.json` | 语义检索的 LLM 模型端点（兼容 OpenAI 格式或 AOC 平台） |
+| `.env` | 本地密钥（Git 忽略）；模型定义见 `common/config/models.yaml` |
+
+模型定义放在本地（Git 忽略）的 `common/config/models.yaml`，密钥来自环境变量或
+`.env`：每条模型条目用 `provider`（默认 `openai_compatible`，`openai` 为旧别名）、`model`、`url` 描述，并用
+`api_key_env` 填写**保存密钥的环境变量名**。`embed`、`rerank` 使用相同结构。
+AOC 签名服务用 `provider: aoc_signed`，并在 `auth` 下填写 `app_key_env`、
+`app_secret_env` 等。本地可参考
+[`models.yaml.example`](common/config/models.yaml.example) 与
+[`.env.example`](.env.example)；系统环境变量优先于 `.env`。
+协议请求/响应结构由内置 Profile 提供，应用不再读取旧 JSON。
+存量部署可先运行 `python -m scripts.migrate_llm_config` 迁移配置。
 
 交互式配置：
 
