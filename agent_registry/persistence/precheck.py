@@ -99,7 +99,23 @@ def verify_storage_ready() -> None:
     so the later FastAPI startup event becomes a cheap no-op.
     """
     from agent_registry.config import PERSISTENCE_CONF, PERSISTENCE_MODE, USE_VECTORDB
+    from agent_registry.core import validate_persistence_mode
     from agent_registry.registry_instance import get_registry
+
+    try:
+        validate_persistence_mode(PERSISTENCE_MODE)
+    except ValueError as exc:
+        logger.error(
+            "\n" + "=" * 80 + "\n"
+            "[storage pre-check] FAILED: invalid persistence.mode.\n"
+            f"  mode    : {PERSISTENCE_MODE!r}\n"
+            f"  error   : {exc}\n"
+            "  Fix persistence.mode in etc/conf/persistence.conf, then restart.\n"
+            "  Exiting before the service port is bound.\n"
+            + "=" * 80
+        )
+        sys.exit(1)
+
     try:
         registry = get_registry()
         if registry is not None and registry.storage is not None:

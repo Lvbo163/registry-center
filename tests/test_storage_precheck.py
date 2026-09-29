@@ -7,7 +7,8 @@
 Storage startup pre-check tests (no live database required).
 
 Covers verify_storage_ready() success/failure paths, the boxed error
-format, and the check_connection() implementations on file/SQLite backends.
+format, persistence.mode validation, and the check_connection()
+implementations on file/SQLite backends.
 """
 
 import sqlite3
@@ -189,3 +190,63 @@ def test_ensure_index_swallows_duplicate_index_error_only():
 
     with pytest.raises(RuntimeError, match="privilege"):
         SqlStorageBackend.ensure_index(_FailingBackend(RuntimeError("missing privilege")), "a", "b")
+
+
+# ---------- persistence.mode validation (PR-1 fail-fast) ----------
+
+def test_known_modes_are_accepted_and_normalized():
+    from agent_registry.core import KNOWN_PERSISTENCE_MODES, validate_persistence_mode
+    assert KNOWN_PERSISTENCE_MODES == ('file', 'postgresql', 'sqlite', 'gauss', 'mysql')
+    for mode in KNOWN_PERSISTENCE_MODES:
+        assert validate_persistence_mode(mode) == mode
+    assert validate_persistence_mode('  PostgreSQL  ') == 'postgresql'
+    assert validate_persistence_mode('FILE') == 'file'
+
+
+@pytest.mark.parametrize('mode', ['vectordb', 'milvus', 'postgres', 'sqlite3', 'weird-db', ''])
+def test_unknown_mode_is_rejected_with_supported_list(mode):
+    from agent_registry.core import KNOWN_PERSISTENCE_MODES, validate_persistence_mode
+    with pytest.raises(ValueError) as excinfo:
+        validate_persistence_mode(mode)
+    message = str(excinfo.value)
+    assert 'persistence.mode' in message
+    for known in KNOWN_PERSISTENCE_MODES:
+        assert known in message
+
+
+def test_registry_constructor_rejects_unknown_mode():
+    """An unknown mode must raise, not silently fall through to file storage."""
+    from agent_registry import core as core_module
+    with pytest.raises(ValueError):
+        core_module.RegistryCore(use_vectordb=False, persistence_mode='vectordb',
+                                 persistence_conf={})
+
+
+def test_registry_still_initializes_file_mode(tmp_path, monkeypatch):
+    """Regression: the 'file' default keeps working after mode validation."""
+    from agent_registry import core as core_module
+    monkeypatch.setattr(core_module, 'get_root_path', lambda: str(tmp_path))
+    registry = core_module.RegistryCore(use_vectordb=False, persistence_mode='file',
+                                       persistence_conf={})
+    try:
+        assert registry.storage is not None
+        assert registry.count() == 0
+    finally:
+        registry.close()
+
+
+def test_precheck_exits_before_binding_on_unknown_mode(monkeypatch, loguru_caplog):
+    """verify_storage_ready() fails fast on a bad mode instead of serving file storage."""
+    monkeypatch.setattr("agent_registry.config.PERSISTENCE_MODE", 'vectordb')
+    reached = []
+    monkeypatch.setattr("agent_registry.registry_instance.get_registry",
+                        lambda: reached.append(True))
+
+    with pytest.raises(SystemExit) as excinfo:
+        verify_storage_ready()
+
+    assert excinfo.value.code == 1
+    assert reached == []
+    assert "invalid persistence.mode" in loguru_caplog.text
+    assert "'vectordb'" in loguru_caplog.text
+    assert "file, postgresql, sqlite, gauss, mysql" in loguru_caplog.text

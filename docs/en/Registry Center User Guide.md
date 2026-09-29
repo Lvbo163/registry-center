@@ -251,7 +251,7 @@ agent-registry>
 | ssl_keyfile | Service private key path | etc/ssl/server_key.pem |
 | signature_validation_enabled | Signature verification switch | true |
 | agent_approval_enabled | Approval switch | false |
-| use_vectordb | Enable vector database | false |
+| use_vectordb | Enable vector database (replaces the authoritative store; approval/tags may stop working) | false |
 
 ### Persistence Configuration (etc/conf/persistence.conf)
 

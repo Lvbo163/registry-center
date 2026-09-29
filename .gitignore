@@ -17,3 +17,7 @@ etc/sign_cert/
 
 # Config-secret cipher key (auto-generated, per-machine)
 **/cipher.key
+
+# Local review working notes (cross-review loop artifacts)
+reviews/
+.claude

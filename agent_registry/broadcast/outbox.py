@@ -31,6 +31,15 @@ class OutboxStore(ABC):
         """Assign the next registry_version, persist, and return the event."""
         ...
 
+    def shares_backend(self, backend) -> bool:
+        """Whether this outbox persists through the given storage backend.
+
+        The authoritative-write path requires its outbox to share the
+        backend's transaction; a formal method (instead of sniffing private
+        attributes) keeps that contract checkable as implementations evolve.
+        """
+        return getattr(self, "_backend", None) is backend
+
     @abstractmethod
     def mark_status(self, event_id: str, status: str,
                     dispatched_at: Optional[str] = None) -> bool:
@@ -151,6 +160,29 @@ class SqlOutbox(OutboxStore):
             "ON registry_events(registry_version)",
             "CREATE INDEX idx_registry_events_version ON registry_events(registry_version)"
         )
+        # `append()` allocates versions with MAX+1 under a process-local lock,
+        # which two service instances can still race on. The unique index turns
+        # that race into a loud failure instead of two events sharing a version
+        # (which `list_after(version)` would silently skip for one consumer).
+        # A database-assigned sequence is the real fix; until then this must not
+        # be described as multi-instance safe.
+        try:
+            self._backend.ensure_index(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_registry_events_version_unique "
+                "ON registry_events(registry_version)",
+                "CREATE UNIQUE INDEX idx_registry_events_version_unique "
+                "ON registry_events(registry_version)"
+            )
+        except Exception as e:
+            # Fail loud: without this constraint two instances can record the same
+            # version and `list_after()` would skip one of them forever. Starting
+            # anyway would mean serving version-cursor consumers (/changes, future
+            # projections) without the ordering guarantee they rely on.
+            raise RuntimeError(
+                f"Could not enforce a unique registry_version on registry_events ({e}). "
+                "Repair duplicates first: SELECT registry_version, COUNT(*) FROM "
+                "registry_events GROUP BY registry_version HAVING COUNT(*) > 1"
+            ) from e
         self._backend.ensure_index(
             "CREATE INDEX IF NOT EXISTS idx_registry_events_status "
             "ON registry_events(status)",
@@ -159,19 +191,23 @@ class SqlOutbox(OutboxStore):
         logger.info("Outbox table 'registry_events' created/verified")
 
     def append(self, event: RegistryEvent) -> RegistryEvent:
-        with self._lock:
-            row = self._backend._execute_read_one(
-                "SELECT COALESCE(MAX(registry_version), 0) FROM registry_events"
-            )
-            event.registry_version = int(row[0] or 0) + 1
-            self._backend._execute_write(
-                "INSERT INTO registry_events (event_id, registry_version, event_type, "
-                "payload, status, retry_count, created_at, dispatched_at) "
-                f"VALUES ({self._ph}, {self._ph}, {self._ph}, {self._ph}, 'pending', 0, {self._ph}, NULL)",
-                (event.event_id, event.registry_version, event.event_type.value,
-                 json.dumps(event.to_dict()), event.timestamp)
-            )
-            return event
+        # SQLite shares one connection. Registry writes already hold its
+        # connection lock; independent health events must acquire that lock
+        # before this outbox lock too, or the two paths can deadlock (ABBA).
+        with self._backend._serialize():
+            with self._lock:
+                row = self._backend._execute_read_one(
+                    "SELECT COALESCE(MAX(registry_version), 0) FROM registry_events"
+                )
+                event.registry_version = int(row[0] or 0) + 1
+                self._backend._execute_write(
+                    "INSERT INTO registry_events (event_id, registry_version, event_type, "
+                    "payload, status, retry_count, created_at, dispatched_at) "
+                    f"VALUES ({self._ph}, {self._ph}, {self._ph}, {self._ph}, 'pending', 0, {self._ph}, NULL)",
+                    (event.event_id, event.registry_version, event.event_type.value,
+                     json.dumps(event.to_dict()), event.timestamp)
+                )
+                return event
 
     def mark_status(self, event_id: str, status: str,
                     dispatched_at: Optional[str] = None) -> bool:

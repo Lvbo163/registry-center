@@ -145,6 +145,15 @@ class MySQLStorage(SqlStorageBackend):
     def _acquire_conn(self):
         return self.pool.connection()
 
+    def _begin_transaction(self, conn):
+        """Open an explicit transaction on a pooled autocommit connection.
+
+        PooledDB is created with autocommit=True, so without this every
+        statement would commit on its own and the unit of work would be a lie:
+        the record write could not be rolled back when the event insert fails.
+        """
+        conn.begin()
+
     def _release_conn(self, conn):
         conn.close()
 

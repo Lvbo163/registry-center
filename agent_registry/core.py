@@ -19,6 +19,7 @@
 import json
 import os
 import re
+from contextlib import contextmanager
 from pathlib import Path
 IS_WINDOWS = os.name == 'nt'
 from threading import Lock
@@ -52,6 +53,27 @@ def make_agent_id(name: str, organization: str) -> str:
     return f"{name}::{organization}"
 
 
+# Storage backends that share the SQL implementation, plus the JSON-file default.
+SQL_PERSISTENCE_MODES = ('postgresql', 'sqlite', 'gauss', 'mysql')
+FILE_PERSISTENCE_MODE = 'file'
+KNOWN_PERSISTENCE_MODES = (FILE_PERSISTENCE_MODE,) + SQL_PERSISTENCE_MODES
+
+
+def validate_persistence_mode(mode: str) -> str:
+    """Return the normalized persistence mode, or raise for an unknown one.
+
+    An unknown `persistence.mode` used to fall through to the file backend, so a
+    typo silently served the operator a different store than the one configured.
+    """
+    normalized = str(mode or '').strip().lower()
+    if normalized not in KNOWN_PERSISTENCE_MODES:
+        raise ValueError(
+            f"Unknown persistence.mode '{mode}'. "
+            f"Supported: {', '.join(KNOWN_PERSISTENCE_MODES)}"
+        )
+    return normalized
+
+
 class RegistryCore:
     """
     Core registry that stores AgentCard instances with (name, organization) as unique key.
@@ -65,18 +87,24 @@ class RegistryCore:
                  persistence_mode: str = PERSISTENCE_MODE, persistence_conf: dict = PERSISTENCE_CONF):
         self._llm = None
         self.use_vectordb = use_vectordb
-        self.persistence_mode = persistence_mode
+        self.persistence_mode = validate_persistence_mode(persistence_mode)
         self.persistence_conf = persistence_conf
         self.storage: Optional[StorageBackend] = None
         self._lock = Lock()
+        # Set while a unit of work is open: event failures must then roll the
+        # mutation back instead of being swallowed (see _publish_event).
+        self._event_must_succeed = False
+        # Events persisted inside the open unit of work, notified after commit.
+        self._deferred_events = None
 
         if use_vectordb:
             self.vectordb = get_or_create_vectordb_tool_instance(get_vectordb_config_by_type(VectorDBType.Milvus))
             self.embedding_tool = get_embed_instance()
-        elif persistence_mode in ('postgresql', 'sqlite', 'gauss', 'mysql'):
+        elif self.persistence_mode in SQL_PERSISTENCE_MODES:
             self.storage = StorageRegistry.get_backend(self.persistence_mode, self.persistence_conf)
             logger.info(f"Registry initialized with {self.persistence_mode} storage")
         else:
+            # 'file' is the only remaining known mode once the mode is validated.
             data_path = Path(get_root_path()) / "data"
             data_path.mkdir(parents=True, exist_ok=True)
             if not IS_WINDOWS:
@@ -142,10 +170,15 @@ class RegistryCore:
                 insert_data = {"collection_name": COLLECTION_NAME, "entity": insert_entity}
                 result = self.vectordb.insert_entity(insert_data)
             else:
-                result = self.storage.create(agent, owner=owner, status=initial_status)
-                if result:
-                    logger.info(
-                        f"Registered agent: {agent.name} (org={agent.provider.organization}, status={initial_status}, owner={owner})")
+                with self._atomic_write():
+                    result = self.storage.create(agent, owner=owner, status=initial_status)
+                    if result:
+                        logger.info(
+                            f"Registered agent: {agent.name} (org={agent.provider.organization}, status={initial_status}, owner={owner})")
+                    if result:
+                        self._publish_event(EventType.AGENT_REGISTERED, agent.name, agent.provider.organization,
+                                            card_data=MessageToDict(agent, preserving_proto_field_name=True))
+                return result
             if result:
                 self._publish_event(EventType.AGENT_REGISTERED, agent.name, agent.provider.organization,
                                     card_data=MessageToDict(agent, preserving_proto_field_name=True))
@@ -219,11 +252,11 @@ class RegistryCore:
                 result = self.vectordb.update_entity(update_data)
                 logger.info(f"Updated agent in vectordb: {name}({organization}, owner={owner})")
                 return result
-            else:
+            with self._atomic_write():
                 result = self.storage.update(name, organization, agent_data, owner=owner)
                 logger.info(f"Updated agent: {name}({organization}, owner={owner})")
-            if result:
-                self._publish_event(EventType.AGENT_UPDATED, name, organization, card_data=agent_data)
+                if result:
+                    self._publish_event(EventType.AGENT_UPDATED, name, organization, card_data=agent_data)
             return result
 
     def deregister(self, name: str, organization: str, use_vectordb: bool = USE_VECTORDB,
@@ -238,12 +271,19 @@ class RegistryCore:
                 result = self.vectordb.delete_entity(delete_data)
                 logger.info(f"Deregistered agent from vectordb: {name}({organization}, owner={owner})")
                 return result
-            else:
+            health_cleanup_deferred = False
+            with self._atomic_write():
                 result = self.storage.delete(name, organization, owner=owner)
                 logger.info(f"Deregistered agent: {name}({organization}, owner={owner})")
-            if result:
+                if result:
+                    self._publish_event(EventType.AGENT_DEREGISTERED, name, organization)
+                    if getattr(self.storage, "supports_transactions", False):
+                        health_cleanup_deferred = self.storage.add_commit_hook(
+                            lambda: self._remove_health_state(name, organization)
+                        )
+            if result and not health_cleanup_deferred:
+                # Own transaction committed (or a non-transactional backend).
                 self._remove_health_state(name, organization)
-                self._publish_event(EventType.AGENT_DEREGISTERED, name, organization)
             return result
 
     def _select_agents_by_llm(self, task: str, agents_info: List[dict], top_n: int) -> list:
@@ -370,9 +410,77 @@ class RegistryCore:
     def _make_id(self, name: str, organization: str):
         return make_agent_id(name, organization)
 
+    @contextmanager
+    def _atomic_write(self):
+        """Group an authoritative mutation with its outbox event.
+
+        Inside the unit of work the event is only *persisted*; waking the queue
+        and the synchronous listeners happens after the commit succeeded, so a
+        consumer can never observe a change that was rolled back. Backends
+        without transactions (file, memory, vectordb) yield False and keep
+        best-effort publishing - exactly why derived projections must not be
+        built on them.
+
+        If the caller already opened a unit of work (`storage.transaction()`),
+        the notification is registered as a commit hook of that *outer* unit: it
+        must not fire when this block exits, because the outer one can still roll
+        back. In both cases the hook is registered *after* the mutation body, so
+        internal side effects deferred by the body (e.g. health-state cleanup on
+        deregister) run before consumers are woken.
+        """
+        storage = self.storage
+        if storage is None or not getattr(storage, "supports_transactions", False):
+            yield False
+            return
+        bus = get_event_bus()
+        if not self._events_share_storage(bus, storage):
+            # An apparently successful SQL write must not silently lose its
+            # durable change event because the bus was initialized too early.
+            raise RuntimeError(
+                f"Event outbox is not bound to the authoritative {type(storage).__name__}; "
+                "initialize broadcast with the same storage before writing."
+            )
+        pending: List[Any] = []
+        previous = self._deferred_events
+        previous_required = self._event_must_succeed
+        self._deferred_events = pending
+        self._event_must_succeed = True
+        try:
+            with storage.transaction():
+                yield True
+                # The notification is registered as the LAST commit hook,
+                # after any side effect the mutation body deferred (e.g.
+                # health-state cleanup on deregister): internal state must
+                # be consistent before consumers are woken. The hook is
+                # dropped when the unit rolls back, and for a nested unit
+                # it rides the outermost commit.
+                storage.add_commit_hook(
+                    lambda: self._notify_committed(bus, pending))
+        finally:
+            self._event_must_succeed = previous_required
+            self._deferred_events = previous
+
+    @staticmethod
+    def _events_share_storage(bus, storage) -> bool:
+        """Whether the bus outbox writes through this very storage instance."""
+        return bus.shares_backend(storage)
+
+    def _notify_committed(self, bus, events: List[Any]) -> None:
+        for event in events:
+            try:
+                bus.notify(event)
+            except Exception as e:
+                logger.error(f"Failed to notify consumers of event {getattr(event, 'event_id', '?')}: {e}")
+
     def _publish_event(self, event_type: EventType, name: str, organization: str,
                        card_data: Optional[Dict[str, Any]] = None) -> None:
-        """Publish a registry change event. Event failures never break mutations."""
+        """Publish a registry change event.
+
+        Outside a unit of work, event failures are logged and swallowed so that
+        a broadcast outage never breaks a mutation. Inside one, the failure
+        propagates and rolls the transaction back: a committed record without
+        its event is precisely the inconsistency projections must never see.
+        """
         try:
             data = {
                 "name": name,
@@ -381,9 +489,16 @@ class RegistryCore:
             }
             if card_data is not None:
                 data["agent_card"] = card_data
-            get_event_bus().publish(event_type, data)
+            bus = get_event_bus()
+            if self._deferred_events is not None:
+                # Inside a unit of work: persist now, notify only after commit.
+                self._deferred_events.append(bus.persist(event_type, data))
+            else:
+                bus.publish(event_type, data)
         except Exception as e:
             logger.error(f"Failed to publish registry event {event_type}: {e}")
+            if self._event_must_succeed:
+                raise
 
     def _remove_health_state(self, name: str, organization: str) -> None:
         try:
@@ -445,11 +560,12 @@ class RegistryCore:
         with self._lock:
             if not self.storage:
                 return False
-            result = self.storage.update_status(name, organization, new_status)
-            if result:
-                record = self.storage.find_by_key(name, organization)
-                card_data = MessageToDict(record.agent_card, preserving_proto_field_name=True) if record else None
-                self._publish_event(EventType.AGENT_UPDATED, name, organization, card_data=card_data)
+            with self._atomic_write():
+                result = self.storage.update_status(name, organization, new_status)
+                if result:
+                    record = self.storage.find_by_key(name, organization)
+                    card_data = MessageToDict(record.agent_card, preserving_proto_field_name=True) if record else None
+                    self._publish_event(EventType.AGENT_UPDATED, name, organization, card_data=card_data)
             return result
 
     def get_agents_by_status(self, status: str) -> List[AgentCard]:
@@ -469,9 +585,22 @@ class RegistryCore:
         return self.storage.get_agent_tags(name, organization) if self.storage else []
 
     def update_agent_tags(self, name: str, organization: str, tags: List[str]) -> bool:
-        """Update tags for an agent (full replacement)."""
+        """Update tags for an agent (full replacement).
+
+        Tags live on the authoritative record, so the change is announced like
+        any other mutation - consumers must not keep serving a stale tag set
+        from a projection.
+        """
         with self._lock:
-            return self.storage.update_agent_tags(name, organization, tags) if self.storage else False
+            if not self.storage:
+                return False
+            with self._atomic_write():
+                result = self.storage.update_agent_tags(name, organization, tags)
+                if result:
+                    record = self.storage.find_by_key(name, organization)
+                    card_data = MessageToDict(record.agent_card, preserving_proto_field_name=True) if record else None
+                    self._publish_event(EventType.AGENT_UPDATED, name, organization, card_data=card_data)
+            return result
 
     def find_agents_by_tag(self, tag: str) -> List[AgentCard]:
         """Find agents that have a specific tag."""

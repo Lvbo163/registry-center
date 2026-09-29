@@ -67,6 +67,11 @@ class SQLiteStorage(SqlStorageBackend):
 
     # ---- connection management ----
 
+    # Every thread shares one connection (check_same_thread=False), so writes
+    # must be serialized or a concurrent commit would end an in-flight unit of
+    # work - see SqlStorageBackend.transaction()/_serialize().
+    shares_single_connection = True
+
     def _acquire_conn(self) -> sqlite3.Connection:
         return self._conn
 

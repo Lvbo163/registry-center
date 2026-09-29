@@ -602,7 +602,16 @@ Implement custom functionality through extended configuration, including storage
 3. Configure vector database
 
     ```properties
-    # Enable vector database (for semantic search optimization)
+    # Enable vector database
+    #
+    # WARNING: this switch does not add a semantic-search index on top of the
+    # existing store - it replaces it. When enabled, RegistryCore no longer
+    # initializes the file/SQL backend, AgentCards are written only to the
+    # vector DB, and approval (update_status), tags, full listing, status and
+    # timestamps stop working (they silently return empty values or fail).
+    # Semantic search itself works, but do not enable this in production.
+    # The intended "authoritative store + rebuildable index" layering is a
+    # future refactor and is not implemented yet.
     use_vectordb=true
     ```
 
@@ -619,6 +628,8 @@ The Registry Center supports pluggable persistence backends selected via `persis
 | mysql | MySQL 5.7+ / 8.0 | PyMySQL + DBUtils |
 
 All SQL backends share one CRUD engine (`agent_registry/persistence/sql_backend.py`) and provide their dialect-specific SQL in `agent_registry/persistence/sql_queries.py`. Adding a new database type requires: a new query enum, a `SqlStorageBackend` subclass, a factory branch in `agent_registry/persistence/__init__.py`, and a config block in `persistence.conf`.
+
+In SQL mode, initialize the broadcast service with the same storage instance before writing Agent records: `initialize_broadcast_service(registry.storage, registry.persistence_mode)`. The normal server startup does this automatically. Embedded callers, CLI scripts, and tests must do it explicitly; otherwise writes fail before changing the record. If a broadcast singleton was created earlier with a file or memory outbox, startup fails rather than silently using a non-transactional outbox. File/vector modes do not require this SQL binding.
 
 ### Configuration example (MySQL)
 
@@ -971,7 +982,7 @@ Restart the service after changes; model clients are cached. Use `python -m scri
 | signature_validation_enabled | Signature verification toggle | true                    |
 | agent_approval_enabled | Agent approval toggle | false                   |
 | owner.isolation.enabled | Owner isolation toggle | true                    |
-| use_vectordb | Enable vector database | false                   |
+| use_vectordb | Enable vector database (replaces the authoritative store; see the warning above) | false                   |
 | jwk_cert_path | JWK signing certificate path | etc/ssl/server.cer |
 | jwk_private_key_path | JWK private key directory | etc/sign_cert |
 | jwk_private_key_password | JWK private key passphrase | '' |
