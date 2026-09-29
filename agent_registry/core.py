@@ -52,6 +52,27 @@ def make_agent_id(name: str, organization: str) -> str:
     return f"{name}::{organization}"
 
 
+# Storage backends that share the SQL implementation, plus the JSON-file default.
+SQL_PERSISTENCE_MODES = ('postgresql', 'sqlite', 'gauss', 'mysql')
+FILE_PERSISTENCE_MODE = 'file'
+KNOWN_PERSISTENCE_MODES = (FILE_PERSISTENCE_MODE,) + SQL_PERSISTENCE_MODES
+
+
+def validate_persistence_mode(mode: str) -> str:
+    """Return the normalized persistence mode, or raise for an unknown one.
+
+    An unknown `persistence.mode` used to fall through to the file backend, so a
+    typo silently served the operator a different store than the one configured.
+    """
+    normalized = str(mode or '').strip().lower()
+    if normalized not in KNOWN_PERSISTENCE_MODES:
+        raise ValueError(
+            f"Unknown persistence.mode '{mode}'. "
+            f"Supported: {', '.join(KNOWN_PERSISTENCE_MODES)}"
+        )
+    return normalized
+
+
 class RegistryCore:
     """
     Core registry that stores AgentCard instances with (name, organization) as unique key.
@@ -65,7 +86,7 @@ class RegistryCore:
                  persistence_mode: str = PERSISTENCE_MODE, persistence_conf: dict = PERSISTENCE_CONF):
         self._llm = None
         self.use_vectordb = use_vectordb
-        self.persistence_mode = persistence_mode
+        self.persistence_mode = validate_persistence_mode(persistence_mode)
         self.persistence_conf = persistence_conf
         self.storage: Optional[StorageBackend] = None
         self._lock = Lock()
@@ -73,10 +94,11 @@ class RegistryCore:
         if use_vectordb:
             self.vectordb = get_or_create_vectordb_tool_instance(get_vectordb_config_by_type(VectorDBType.Milvus))
             self.embedding_tool = get_embed_instance()
-        elif persistence_mode in ('postgresql', 'sqlite', 'gauss', 'mysql'):
+        elif self.persistence_mode in SQL_PERSISTENCE_MODES:
             self.storage = StorageRegistry.get_backend(self.persistence_mode, self.persistence_conf)
             logger.info(f"Registry initialized with {self.persistence_mode} storage")
         else:
+            # 'file' is the only remaining known mode once the mode is validated.
             data_path = Path(get_root_path()) / "data"
             data_path.mkdir(parents=True, exist_ok=True)
             if not IS_WINDOWS:
