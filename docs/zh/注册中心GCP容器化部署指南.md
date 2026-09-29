@@ -132,14 +132,14 @@ Invoke-RestMethod -Uri "https://xxxxx.run.app/rest/v1/registry-center/agent-card
 
 ## 配置模型文件
 
-`common/config/models.yaml` 刻意不打进镜像（已在 `.dockerignore` 中排除），因此新建的容器没有模型
+`etc/config/models.yaml` 刻意不打进镜像（已在 `.dockerignore` 中排除），因此新建的容器没有模型
 定义。服务仍会正常启动并提供接口，但所有依赖 LLM 的能力都不可用——语义匹配 Agent 返回
 `{"agentCards":[]}`，与"没有匹配"无法区分。
 
 提供该文件有两种方式：
 
 1. **Docker Compose** — `docker-compose.yml` 会挂载
-   `${LLM_CONFIG_HOST_FILE:-./common/config/models.yaml}`，把完整文件放在该路径即可。
+   `${LLM_CONFIG_HOST_FILE:-./etc/config/models.yaml}`，把完整文件放在该路径即可。
 2. **Cloud Run** — 容器入口脚本（`bin/entrypoint.sh`）会在服务启动前，把环境变量转成**不含密钥**的
    `models.yaml`：
 
@@ -153,7 +153,7 @@ Invoke-RestMethod -Uri "https://xxxxx.run.app/rest/v1/registry-center/agent-card
 `api_key_env: LLM_CHAT_API_KEY`——密钥值本身从不落盘。已存在的 `models.yaml` 不会被覆盖，因此挂载的
 文件总是优先。该简化方式只生成 `chat` 能力：需要 `embed` 时请提供完整的 `models.yaml`（自定义镜像或
 挂载卷）。只设置 `LLM_CHAT_MODEL` / `LLM_CHAT_URL` 之一，或指定 `aoc_signed` 等 provider，容器会直接
-报错退出，而不是带着半套配置启动。字段说明见 [LLM 配置参考](../../common/config/README_zh.md)。
+报错退出，而不是带着半套配置启动。字段说明见 [LLM 配置参考](../../etc/config/README_zh.md)。
 
 ---
 

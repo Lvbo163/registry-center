@@ -19,7 +19,7 @@ docs/
 !README.md
 .env
 .env.*
-common/config/models.yaml
+etc/config/models.yaml
 venv/
 wheelhouse/
 wheels/

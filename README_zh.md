@@ -195,14 +195,14 @@ flowchart TB
 | `etc/conf/server.properties` | TLS 协议版本、密码套件、连接/超时/流控参数 |
 | `etc/conf/persistence.conf` | 存储后端：`file`（默认）、`postgresql` |
 | `etc/conf/log_config.conf` | 审计日志轮转参数（文件大小、备份数量） |
-| `.env` | 本地密钥（Git 忽略）；模型定义见 `common/config/models.yaml` |
+| `.env` | 本地密钥（Git 忽略）；模型定义见 `etc/config/models.yaml` |
 
-模型定义放在本地（Git 忽略）的 `common/config/models.yaml`，密钥来自环境变量或
+模型定义放在本地（Git 忽略）的 `etc/config/models.yaml`，密钥来自环境变量或
 `.env`：每条模型条目用 `provider`（默认 `openai_compatible`，`openai` 为旧别名）、`model`、`url` 描述，并用
 `api_key_env` 填写**保存密钥的环境变量名**。`embed`、`rerank` 使用相同结构。
 AOC 签名服务用 `provider: aoc_signed`，并在 `auth` 下填写 `app_key_env`、
 `app_secret_env` 等。本地可参考
-[`models.yaml.example`](common/config/models.yaml.example) 与
+[`models.yaml.example`](etc/config/models.yaml.example) 与
 [`.env.example`](.env.example)；系统环境变量优先于 `.env`。
 协议请求/响应结构由内置 Profile 提供，应用不再读取旧 JSON。
 存量部署可先运行 `python -m scripts.migrate_llm_config` 迁移配置。
@@ -245,7 +245,7 @@ agent-registry> tag delete --id <uuid>            # 删除标签
 | [API 参考](docs/zh/注册中心API参考.md) | 完整 REST 接口规范，含请求参数、响应格式、状态码 |
 | [安全能力指南](docs/zh/注册中心安全能力指南.md) | TLS 通信、访问控制、日志审计、内容安全、证书工具 |
 | [GCP 容器化部署指南](docs/zh/注册中心GCP容器化部署指南.md) | 在 Google Cloud Platform 上容器化部署注册中心 |
-| [LLM 配置说明](common/config/README_zh.md) | LLM 配置文件字段说明与示例 |
+| [LLM 配置说明](etc/config/README_zh.md) | LLM 配置文件字段说明与示例 |
 
 ## 部署说明
 

@@ -132,7 +132,7 @@ Invoke-RestMethod -Uri "https://xxxxx.run.app/rest/v1/registry-center/agent-card
 
 ## Configure the Model File
 
-`common/config/models.yaml` is deliberately not built into the image (it is listed in
+`etc/config/models.yaml` is deliberately not built into the image (it is listed in
 `.dockerignore`), so a fresh container has no model definition. The service still starts and serves
 requests, but every LLM-backed feature stays unavailable — semantic Agent matching returns
 `{"agentCards":[]}`, which is indistinguishable from "no match".
@@ -140,7 +140,7 @@ requests, but every LLM-backed feature stays unavailable — semantic Agent matc
 Two ways to supply the file:
 
 1. **Docker Compose** — `docker-compose.yml` bind-mounts
-   `${LLM_CONFIG_HOST_FILE:-./common/config/models.yaml}`. Keep a complete file at that path.
+   `${LLM_CONFIG_HOST_FILE:-./etc/config/models.yaml}`. Keep a complete file at that path.
 2. **Cloud Run** — the container entrypoint (`bin/entrypoint.sh`) turns environment variables into
    a secret-free `models.yaml` before the service starts:
 
@@ -157,7 +157,7 @@ existing `models.yaml` is never overwritten, so a bind-mounted file always wins.
 capability is generated this way: provide a complete `models.yaml` (a custom image or a mounted
 volume) when `embed` is needed. Setting just one of `LLM_CHAT_MODEL` / `LLM_CHAT_URL`, or asking for
 a provider such as `aoc_signed`, makes the container exit with a message instead of starting
-half-configured. Field reference: [LLM configuration](../../common/config/README_en.md).
+half-configured. Field reference: [LLM configuration](../../etc/config/README_en.md).
 
 ---
 

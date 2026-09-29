@@ -15,7 +15,7 @@ export PATH="/opt/venv/bin:$PATH"
 
 SERVER_CONF="etc/conf/server.conf"
 PERSISTENCE_CONF="etc/conf/persistence.conf"
-MODELS_CONF="common/config/models.yaml"
+MODELS_CONF="etc/config/models.yaml"
 
 # Escape sed metacharacters (&, backslash, delimiter #) in override values so
 # credentials or hosts containing them don't corrupt the config file.
@@ -169,6 +169,7 @@ elif [ -n "${LLM_CHAT_MODEL}" ] && [ -n "${LLM_CHAT_URL}" ]; then
         openai|openai_compatible) ;;
         *) echo "LLM_CHAT_PROVIDER=${LLM_CHAT_PROVIDER} cannot be generated from the simplified environment settings; provide a complete models.yaml" >&2; exit 1 ;;
     esac
+    mkdir -p "$(dirname "${MODELS_CONF}")"
     python3 -c "
 import os, yaml
 chat = {

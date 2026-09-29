@@ -775,7 +775,7 @@ SPDX-License-Identifier: Apache-2.0
 
 - Description
 
-    This API receives a natural language task description as input, analyzes the task intent through semantic understanding capabilities, and ultimately outputs the list of Agents best matching the task. Semantic retrieval depends on the `chat` capability defined in `common/config/models.yaml` — the entry names its secret through `api_key_env`, and the value comes from the process environment or `.env`. When the LLM service is unavailable, the API returns 200 with an empty agentCards list, indistinguishable from "no match".
+    This API receives a natural language task description as input, analyzes the task intent through semantic understanding capabilities, and ultimately outputs the list of Agents best matching the task. Semantic retrieval depends on the `chat` capability defined in `etc/config/models.yaml` — the entry names its secret through `api_key_env`, and the value comes from the process environment or `.env`. When the LLM service is unavailable, the API returns 200 with an empty agentCards list, indistinguishable from "no match".
 
 - Interface Constraints
 

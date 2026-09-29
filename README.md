@@ -195,10 +195,10 @@ See the [API Reference](docs/en/Registry%20Center%20API%20Reference.md) for full
 | `etc/conf/server.properties` | TLS versions, ciphers, connection/timeout/rate limits |
 | `etc/conf/persistence.conf` | Storage backend: `file` (default), `postgresql` |
 | `etc/conf/log_config.conf` | Audit log rotation (size, backup count) |
-| `.env` | Local secrets (gitignored); model definitions live in `common/config/models.yaml` |
+| `.env` | Local secrets (gitignored); model definitions live in `etc/config/models.yaml` |
 
-Model definitions live in the gitignored `common/config/models.yaml` (copy
-[`models.yaml.example`](common/config/models.yaml.example)), while secrets come
+Model definitions live in the gitignored `etc/config/models.yaml` (copy
+[`models.yaml.example`](etc/config/models.yaml.example)), while secrets come
 from environment variables or a local gitignored `.env` (see
 [`.env.example`](.env.example)). Built-in `openai_compatible` (`openai` alias) and `aoc_signed` profiles
 provide request/response contracts, while each `models:` entry sets `model` and
@@ -225,7 +225,7 @@ python -m agent_registry.init
 | [API Reference](docs/en/Registry%20Center%20API%20Reference.md) | Full REST API specification with request/response examples |
 | [Security Guide](docs/en/Registry%20Center%20Security%20Guide.md) | TLS, access control, audit logging, content safety, certificate tooling |
 | [GCP Containerized Deployment Guide](docs/en/Registry%20Center%20GCP%20Containerized%20Deployment%20Guide.md) | Containerized deployment of Registry Center on Google Cloud Platform |
-| [LLM Config](common/config/README_en.md) | LLM configuration file reference |
+| [LLM Config](etc/config/README_en.md) | LLM configuration file reference |
 
 > For Chinese documentation, see [中文 README](README_zh.md) or [docs/zh/](docs/zh/).
 
