@@ -629,6 +629,8 @@ The Registry Center supports pluggable persistence backends selected via `persis
 
 All SQL backends share one CRUD engine (`agent_registry/persistence/sql_backend.py`) and provide their dialect-specific SQL in `agent_registry/persistence/sql_queries.py`. Adding a new database type requires: a new query enum, a `SqlStorageBackend` subclass, a factory branch in `agent_registry/persistence/__init__.py`, and a config block in `persistence.conf`.
 
+In SQL mode, initialize the broadcast service with the same storage instance before writing Agent records: `initialize_broadcast_service(registry.storage, registry.persistence_mode)`. The normal server startup does this automatically. Embedded callers, CLI scripts, and tests must do it explicitly; otherwise writes fail before changing the record. If a broadcast singleton was created earlier with a file or memory outbox, startup fails rather than silently using a non-transactional outbox. File/vector modes do not require this SQL binding.
+
 ### Configuration example (MySQL)
 
 ```

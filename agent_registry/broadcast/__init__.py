@@ -108,6 +108,11 @@ def initialize_broadcast_service(backend=None, mode: Optional[str] = None) -> Br
             outbox, subscription_store = _build_stores(backend, mode)
             _service = BroadcastService(outbox, subscription_store)
             logger.info(f"Broadcast service initialized (enabled={_service.broadcast_enabled})")
+        elif backend is not None and (mode or "").strip().lower() in ("sqlite", "postgresql", "gauss", "mysql"):
+            # A prior lazy get_broadcast_service() may have installed a file
+            # outbox. Do not silently keep it for an authoritative SQL store.
+            if getattr(_service.outbox, "_backend", None) is not backend:
+                raise RuntimeError("Broadcast outbox is not bound to the authoritative SQL storage")
     return _service
 
 
