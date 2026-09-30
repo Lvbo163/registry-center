@@ -11,6 +11,8 @@ schema initialization while inheriting all CRUD logic from this base class.
 """
 
 import json
+import threading
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
 
@@ -27,6 +29,156 @@ class SqlStorageBackend(StorageBackend):
 
     queries = None
     _integrity_error = Exception
+    # SQL backends commit a mutation and its outbox event in one transaction.
+    supports_transactions = True
+    # Backends whose `_acquire_conn()` hands out one shared connection (SQLite)
+    # must serialize writes: another thread committing on that same connection
+    # would commit a unit of work that is still in flight.
+    shares_single_connection = False
+    # Parameter placeholder for dialect-agnostic helper queries (%s for psycopg2).
+    param_ph = "%s"
+    # Whether the dialect supports `CREATE INDEX IF NOT EXISTS`. Backends that
+    # don't (e.g. MySQL) set this to False; auxiliary SQL stores use it to pick
+    # a duplicate-tolerant plain CREATE INDEX instead.
+    supports_create_index_if_not_exists = True
+
+    def ensure_index(self, ddl_if_not_exists: str, ddl_plain: str) -> None:
+        """Create an index via dialect-appropriate DDL.
+
+        Dialects without CREATE INDEX IF NOT EXISTS run the plain form and
+        tolerate ONLY the duplicate-index error (MySQL errno 1061); any other
+        failure propagates instead of being swallowed.
+        """
+        if self.supports_create_index_if_not_exists:
+            self._execute_write(ddl_if_not_exists)
+            return
+        try:
+            self._execute_write(ddl_plain)
+        except Exception as e:
+            if getattr(e, "args", None) and e.args and e.args[0] == 1061:
+                logger.debug(f"Index already exists, skipping: {e}")
+            else:
+                raise
+
+    # ---- unit of work ----
+
+    # Created at import time so the lazily-built helpers below cannot race: two
+    # threads must never end up with different locks or transaction slots.
+    _lazy_init_lock = threading.Lock()
+
+    @property
+    def _tx_state(self):
+        """Per-thread transaction slot (SQLite connections are thread-bound)."""
+        state = getattr(self, "_tx_local", None)
+        if state is None:
+            with SqlStorageBackend._lazy_init_lock:
+                state = getattr(self, "_tx_local", None)
+                if state is None:
+                    state = threading.local()
+                    self._tx_local = state
+        return state
+
+    def _tx_conn(self):
+        """Connection of the unit of work in progress on this thread, if any."""
+        return getattr(self._tx_state, "conn", None)
+
+    @property
+    def _conn_lock(self):
+        lock = getattr(self, "_conn_lock_obj", None)
+        if lock is None:
+            with SqlStorageBackend._lazy_init_lock:
+                lock = getattr(self, "_conn_lock_obj", None)
+                if lock is None:
+                    lock = threading.RLock()
+                    self._conn_lock_obj = lock
+        return lock
+
+    @contextmanager
+    def _serialize(self):
+        """Serialize connection access when the backend shares one connection."""
+        if self.shares_single_connection:
+            with self._conn_lock:
+                yield
+        else:
+            yield
+
+    def add_commit_hook(self, callback) -> bool:
+        """Run `callback` after the *enclosing* unit of work commits.
+
+        Returns False when no unit of work is active on this thread, in which
+        case the caller owns the commit and must run the callback itself. Hooks
+        registered inside a nested block fire when the outermost unit commits
+        and are dropped when it rolls back, so a deferred side effect (event
+        notification, health cleanup) can never run for a change that did not
+        commit.
+        """
+        hooks = getattr(self._tx_state, "on_commit", None)
+        if hooks is None:
+            return False
+        hooks.append(callback)
+        return True
+
+    def _begin_transaction(self, conn) -> None:
+        """Dialect hook: open an explicit transaction when the driver doesn't.
+
+        psycopg2/gaussdb/sqlite3 start one implicitly on the first statement;
+        pymysql-backed pools run with autocommit=True and must override this,
+        otherwise every statement commits on its own and a rollback could not
+        undo the record write.
+        """
+
+    @contextmanager
+    def transaction(self):
+        """Run several writes as one unit of work.
+
+        Every `_execute_*` call inside the block reuses a single connection and
+        a single commit, so an authoritative record and its outbox event can no
+        longer diverge (previously each write committed on its own). A nested
+        `transaction()` joins the outer unit instead of opening a second one, and
+        a failure marks the whole unit rollback-only even if an outer caller
+        catches the nested exception. A partial record/outbox commit is never
+        allowed.
+        """
+        if self._tx_conn() is not None:
+            try:
+                yield
+            except Exception as exc:
+                self._tx_state.rollback_only = True
+                if self._tx_state.rollback_cause is None:
+                    self._tx_state.rollback_cause = exc
+                raise
+            return
+        hooks = []
+        with self._serialize():
+            conn = self._acquire_conn()
+            self._tx_state.conn = conn
+            self._tx_state.on_commit = hooks
+            self._tx_state.rollback_only = False
+            self._tx_state.rollback_cause = None
+            try:
+                self._begin_transaction(conn)
+                yield
+                if self._tx_state.rollback_only:
+                    raise RuntimeError(
+                        "Transaction is rollback-only after a nested failure"
+                    ) from self._tx_state.rollback_cause
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+            finally:
+                self._tx_state.on_commit = None
+                self._tx_state.conn = None
+                self._tx_state.rollback_only = False
+                self._tx_state.rollback_cause = None
+                self._release_conn(conn)
+        # Committed and the connection lock is released: deferred side effects
+        # (event notifications, health cleanup) are safe to run only now.
+        for callback in hooks:
+            try:
+                callback()
+            except Exception as e:
+                logger.error(f"Post-commit callback failed: {e}")
 
     # ---- connection management (subclass implements) ----
 
@@ -39,40 +191,91 @@ class SqlStorageBackend(StorageBackend):
     # ---- execution helpers ----
 
     def _execute_write(self, query: str, params: tuple = None) -> int:
-        conn = self._acquire_conn()
-        cur = None
-        try:
-            cur = conn.cursor()
-            cur.execute(query, params or ())
-            conn.commit()
-            return cur.rowcount
-        except Exception:
-            conn.rollback()
-            raise
-        finally:
-            if cur:
+        tx_conn = self._tx_conn()
+        if tx_conn is not None:
+            # Inside a unit of work: reuse its connection, commit stays with it.
+            cur = tx_conn.cursor()
+            try:
+                cur.execute(query, params or ())
+                return cur.rowcount
+            finally:
                 cur.close()
-            self._release_conn(conn)
+        with self._serialize():
+            conn = self._acquire_conn()
+            cur = None
+            try:
+                cur = conn.cursor()
+                cur.execute(query, params or ())
+                conn.commit()
+                return cur.rowcount
+            except Exception:
+                conn.rollback()
+                raise
+            finally:
+                if cur:
+                    cur.close()
+                self._release_conn(conn)
 
     def _execute_read_one(self, query: str, params: tuple = None):
-        conn = self._acquire_conn()
-        cur = None
-        try:
-            cur = conn.cursor()
-            cur.execute(query, params or ())
-            return cur.fetchone()
-        finally:
-            if cur:
+        tx_conn = self._tx_conn()
+        if tx_conn is not None:
+            # Read inside a unit of work so uncommitted writes are visible.
+            cur = tx_conn.cursor()
+            try:
+                cur.execute(query, params or ())
+                return cur.fetchone()
+            finally:
                 cur.close()
-            self._release_conn(conn)
+        with self._serialize():
+            conn = self._acquire_conn()
+            cur = None
+            try:
+                cur = conn.cursor()
+                cur.execute(query, params or ())
+                return cur.fetchone()
+            finally:
+                if cur:
+                    cur.close()
+                self._release_conn(conn)
 
     def _execute_read_all(self, query: str, params: tuple = None):
+        tx_conn = self._tx_conn()
+        if tx_conn is not None:
+            cur = tx_conn.cursor()
+            try:
+                cur.execute(query, params or ())
+                return cur.fetchall()
+            finally:
+                cur.close()
+        with self._serialize():
+            conn = self._acquire_conn()
+            cur = None
+            try:
+                cur = conn.cursor()
+                cur.execute(query, params or ())
+                return cur.fetchall()
+            finally:
+                if cur:
+                    cur.close()
+                self._release_conn(conn)
+
+    # ---- startup pre-check ----
+
+    def check_connection(self) -> None:
+        """Round-trip sanity check used by the startup pre-check.
+
+        Startup-only: callers must run this before concurrent registry traffic,
+        because this direct probe does not enter the shared-connection lock.
+        Raises the driver's connection/operational error when the backend is
+        unreachable. Uses explicit cursor close (not `with`) because
+        sqlite3 cursors don't support the context manager protocol.
+        """
         conn = self._acquire_conn()
         cur = None
         try:
             cur = conn.cursor()
-            cur.execute(query, params or ())
-            return cur.fetchall()
+            cur.execute("SELECT 1")
+            cur.fetchone()
         finally:
             if cur:
                 cur.close()

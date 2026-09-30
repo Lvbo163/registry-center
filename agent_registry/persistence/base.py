@@ -44,6 +44,11 @@ class AgentRecord:
 
 
 class StorageBackend(ABC):
+    # Whether the backend can group several writes into one commit (see
+    # SqlStorageBackend.transaction). File/memory backends cannot, which is why
+    # derived projections must not be built on them.
+    supports_transactions = False
+
     @classmethod
     @abstractmethod
     def init(cls, config: dict) -> 'StorageBackend':
@@ -155,3 +160,12 @@ class StorageBackend(ABC):
     @abstractmethod
     def close(self):
         pass
+
+    def check_connection(self) -> None:
+        """Verify the backend is usable right now; raise on failure.
+
+        Non-abstract: default is a no-op so custom/FileStorage backends stay
+        valid. SQL backends override with a real round-trip query, which the
+        startup pre-check uses to fail fast before the server binds a port.
+        """
+        return None

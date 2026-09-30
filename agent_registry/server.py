@@ -35,9 +35,11 @@ from a2a.types import AgentCard
 from fastapi import FastAPI, HTTPException, Query, Request, Depends, status, Path
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from starlette.responses import StreamingResponse
 from google.protobuf.json_format import Parse, MessageToDict
 from loguru import logger
 from limits import strategies, storage, parse_many
+from urllib.parse import urlparse
 
 from starlette.responses import Response
 
@@ -49,10 +51,17 @@ from agent_registry.config import (
     FLOW_CTL_QUERY, AGENT_NUM_MAX, FLOW_CTL_PARALLEL_UPDATE, FLOW_CTL_PARALLEL_GET, FLOW_CTL_PARALLEL_RETRIEVE,
     FLOW_CTL_PARALLEL_DEREGISTER, FLOW_CTL_UPDATE, FLOW_CTL_GET, FLOW_CTL_RETRIEVE, FLOW_CTL_DEREGISTER,
     FLOW_CTL_JWK, FLOW_CTL_PARALLEL_JWK, OWNER_ISOLATION_ENABLED, OWNER_VALIDATION_MODE,
+    FLOW_CTL_HEARTBEAT, FLOW_CTL_PARALLEL_HEARTBEAT, FLOW_CTL_SUBSCRIPTION, FLOW_CTL_PARALLEL_SUBSCRIPTION,
+    BROADCAST_ALLOW_HTTP_CALLBACKS, BROADCAST_CALLBACK_ALLOWLIST,
 )
 from contextlib import asynccontextmanager
 
 from agent_registry.core import RegistryCore, make_agent_key
+from agent_registry.broadcast import get_broadcast_service, initialize_broadcast_service
+from agent_registry.broadcast.events import EventType, utc_now_iso
+from agent_registry.broadcast.subscriptions import Subscription
+from agent_registry.health import get_health_service, initialize_health_service
+from agent_registry.health.state import HealthStatus
 from agent_registry.model.validated_agentcard import validate_agent_card
 from agent_registry.registry_instance import get_registry, initialize_registry
 from agent_registry.middleware import ConnectionLimitMiddleware, TimeoutMiddleware
@@ -156,6 +165,8 @@ def parse_rate_limit(interface_name: str):
         "retrieve": (FLOW_CTL_RETRIEVE, 100),
         "deregister": (FLOW_CTL_DEREGISTER, 50),
         "jwk": (FLOW_CTL_JWK, 10),
+        "heartbeat": (FLOW_CTL_HEARTBEAT, 100),
+        "subscription": (FLOW_CTL_SUBSCRIPTION, 50),
     }
 
     # Get the corresponding config entry
@@ -269,6 +280,8 @@ get_semaphore = anyio.Semaphore(_get_int_config(config, FLOW_CTL_PARALLEL_GET, 1
 retrieve_semaphore = anyio.Semaphore(_get_int_config(config, FLOW_CTL_PARALLEL_RETRIEVE, 100))
 deregister_semaphore = anyio.Semaphore(_get_int_config(config, FLOW_CTL_PARALLEL_DEREGISTER, 50))
 jwk_semaphore = anyio.Semaphore(_get_int_config(config, FLOW_CTL_PARALLEL_JWK, 1))
+heartbeat_semaphore = anyio.Semaphore(_get_int_config(config, FLOW_CTL_PARALLEL_HEARTBEAT, 100))
+subscription_semaphore = anyio.Semaphore(_get_int_config(config, FLOW_CTL_PARALLEL_SUBSCRIPTION, 50))
 
 class CustomHTTPException(HTTPException):
     def __init__(self, status_code: int, error_message: str, extra: Optional[dict] = None):
@@ -355,21 +368,52 @@ async def security_middleware(request: Request, call_next):
 
 
 # ---------- Routes ----------
-async def _audit_result(op_name: OperationName, success: bool, details: dict, client_ip: str):
-    """Log audit entry for operation result."""
+async def _audit_result(op_name: OperationName, success: bool, details: dict, client_ip: str,
+                        caller: str = ''):
+    """Log an audit result attributed to a verified caller identity."""
     await audit_handle.handle({
         "operation_name": op_name,
         "level": LogLevel.MINOR,
         "result": OperationResult.SUCCESS if success else OperationResult.FAILURE,
         "object_name": OperatorObject.AGENT,
         "details": details,
-        "client_ip": client_ip
+        "client_ip": client_ip,
+        "user_name": caller
     })
 
 
-async def _audit_failure(op_name: OperationName, details: dict, client_ip: str):
+async def _audit_failure(op_name: OperationName, details: dict, client_ip: str,
+                         caller: str = ''):
     """Log audit entry for operation failure."""
-    await _audit_result(op_name, False, details, client_ip)
+    await _audit_result(op_name, False, details, client_ip, caller)
+
+
+def _verified_caller(owner: Optional[str]) -> str:
+    """Audit identity for main-port operations, gated on client-cert verification.
+
+    The X-SSL-Client-DN header is client-forgeable when the listener runs
+    without mTLS; attributing audit records to it would poison the trail.
+    Only deployments with verify_client enabled (mTLS here or a trusted
+    proxy) contribute an identity; otherwise records stay unattributed.
+    """
+    if not owner:
+        return ''
+    if str(config.get('verify_client', 'true')).lower() == 'false':
+        return ''
+    return owner
+
+
+async def _maybe_audit_read(op_name: OperationName, details: dict, client_ip: str,
+                            caller: str = ''):
+    """Audit a main-port read operation when audit.read_operations is enabled.
+
+    Integration port reads are always audited (see integration/app.py); main
+    port reads default to not audited to keep high-frequency query traffic
+    from flooding the audit log.
+    """
+    if str(config.get('audit.read_operations', 'false')).lower() != 'true':
+        return
+    await _audit_result(op_name, True, details, client_ip, caller)
 
 
 def _get_owner_from_request(request: Request) -> Optional[str]:
@@ -454,23 +498,54 @@ async def _verify_owner_permission(
     return current_owner
 
 
-async def _check_agent_limit(registry: RegistryCore, client_ip: str, details: dict) -> None:
+async def _check_agent_limit(registry: RegistryCore, client_ip: str, details: dict,
+                             caller: str = '') -> None:
     """Check if registration count exceeds the limit, log and raise an exception if so."""
     if registry.count() >= _get_int_config(config, AGENT_NUM_MAX, 100):
         details["message"] = "Agent registration limit exceeded."
-        await _audit_failure(OperationName.REGISTER_AGENT, details, client_ip)
+        await _audit_failure(OperationName.REGISTER_AGENT, details, client_ip, caller)
         raise CustomHTTPException(status.HTTP_409_CONFLICT, "Agent registration limit exceeded.")
 
 
 async def _check_duplicate_agent(agent: AgentCard, registry: RegistryCore, client_ip: str,
-                                 details: dict) -> None:
+                                 details: dict, caller: str = '') -> None:
     """Check if an agent with same (name, organization) already exists, log and raise if found."""
     key = make_agent_key(agent.name, agent.provider.organization)
     if key in registry.get_agents():
         details["message"] = "Registration skipped: duplicate agent."
-        await _audit_failure(OperationName.REGISTER_AGENT, details, client_ip)
+        await _audit_failure(OperationName.REGISTER_AGENT, details, client_ip, caller)
         raise CustomHTTPException(status.HTTP_409_CONFLICT,
                                   f"Registration skipped: duplicate agent ({agent.name}, {agent.provider.organization})")
+
+
+def _is_hidden_unhealthy(name: str, organization: str) -> bool:
+    """When heartbeat detection hides unhealthy agents, suspect/offline vanish from queries."""
+    try:
+        health_service = get_health_service()
+        if not health_service.enabled or not health_service.hide_unhealthy_results:
+            return False
+        health = health_service.status_of(name, organization)
+        return health in (HealthStatus.SUSPECT.value, HealthStatus.OFFLINE.value)
+    except Exception:
+        return False
+
+
+def _validate_callback_url(url: str) -> None:
+    """Webhook SSRF guard: scheme restriction plus an optional hostname allowlist."""
+    parsed = urlparse(url)
+    if parsed.scheme not in ("https", "http") or not parsed.hostname:
+        raise CustomHTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT,
+                                  "callback_url must be a valid http(s) URL")
+    allow_http = str(get_conf().get(BROADCAST_ALLOW_HTTP_CALLBACKS, "false")).lower() == "true"
+    if parsed.scheme == "http" and not allow_http:
+        raise CustomHTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT,
+                                  "HTTP callbacks are disabled; use an HTTPS callback_url")
+    allowlist = str(get_conf().get(BROADCAST_CALLBACK_ALLOWLIST, "")).strip()
+    if allowlist:
+        allowed_hosts = [h.strip() for h in allowlist.split(",") if h.strip()]
+        if parsed.hostname not in allowed_hosts:
+            raise CustomHTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT,
+                                      f"callback host '{parsed.hostname}' is not in the allowlist")
 
 
 async def _perform_registration(
@@ -479,6 +554,7 @@ async def _perform_registration(
         details: dict,
         initial_status: str = 'published',
         owner: Optional[str] = None,
+        caller: str = '',
 ) -> bool:
     """Execute the actual registration, handle ValueError and other exceptions, log accordingly."""
     try:
@@ -487,12 +563,12 @@ async def _perform_registration(
         return success
     except ValueError as e:
         details["message"] = str(e)
-        await _audit_failure(OperationName.REGISTER_AGENT, details, client_ip)
+        await _audit_failure(OperationName.REGISTER_AGENT, details, client_ip, caller)
         logger.error(f"Register agent failed: name={agent.name}, org={agent.provider.organization}, reason={e}")
         raise CustomHTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from e
     except Exception as e:
         details["message"] = "Internal server error"
-        await _audit_failure(OperationName.REGISTER_AGENT, details, client_ip)
+        await _audit_failure(OperationName.REGISTER_AGENT, details, client_ip, caller)
         logger.exception(f"Unexpected error in register: name={agent.name}, org={agent.provider.organization}")
         raise CustomHTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR,"Internal server error") from e
 
@@ -504,22 +580,23 @@ async def _perform_update(
         data: dict,
         details: dict,
         owner: Optional[str] = None,
+        caller: str = '',
 ) -> bool:
     """Execute the actual update, handle ValueError and other exceptions, log accordingly."""
     try:
         update_handle = HandlerRegistry.get_handler(InterfaceType.UPDATE)
         success = await update_handle.handle(name, organization, data, owner=owner)
         if success:
-            await _audit_result(OperationName.UPDATE_AGENT, True, details, client_ip)
+            await _audit_result(OperationName.UPDATE_AGENT, True, details, client_ip, caller)
         return success
     except ValueError as e:
         details["message"] = str(e)
-        await _audit_failure(OperationName.UPDATE_AGENT, details, client_ip)
+        await _audit_failure(OperationName.UPDATE_AGENT, details, client_ip, caller)
         logger.error(f"Update agent failed: name={name}, org={organization}, reason={e}")
         raise CustomHTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from e
     except Exception as e:
         details["message"] = "Internal server error"
-        await _audit_failure(OperationName.UPDATE_AGENT, details, client_ip)
+        await _audit_failure(OperationName.UPDATE_AGENT, details, client_ip, caller)
         logger.exception(f"Unexpected error in update: name={name}, org={organization}")
         raise CustomHTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR,"Internal server error") from e
 
@@ -557,6 +634,17 @@ async def register_agent(
     authenticate_handle = HandlerRegistry.get_handler(InterfaceType.AUTHENTICATE)
     await authenticate_handle.handle(client_ip, request)
 
+    return await _process_register_cards(
+        agent_cards, client_ip, owner, registry, signature_validator, registry_signer,
+        caller=_verified_caller(owner))
+
+
+async def _process_register_cards(
+        agent_cards: list, client_ip: str, owner: Optional[str],
+        registry: RegistryCore, signature_validator: AgentCardSignatureValidator,
+        registry_signer: Optional[AgentCardSigner], caller: str = ''):
+    """Shared registration flow (main port and integration port): validate, sign, register each card."""
+    total_cards = len(agent_cards)
     registered_results = []
     async with semaphore_guard(register_semaphore):
         for index, agent_card in enumerate(agent_cards, start=1):
@@ -570,20 +658,20 @@ async def register_agent(
                 "url": agent.provider.url,
             }
             try:
-                await _check_agent_limit(registry, client_ip, details)
-                await _check_duplicate_agent(agent, registry, client_ip, details)
+                await _check_agent_limit(registry, client_ip, details, caller)
+                await _check_duplicate_agent(agent, registry, client_ip, details, caller)
                 try:
                     validate_agent_card(agent)
                 except HTTPException as e:
                     details["message"] = e.detail
-                    await _audit_failure(OperationName.REGISTER_AGENT, details, client_ip)
+                    await _audit_failure(OperationName.REGISTER_AGENT, details, client_ip, caller)
                     raise CustomHTTPException(
                         e.status_code, f"Card {index}/{total_cards} ({agent.name}): {e.detail}") from e
 
                 signature_result = signature_validator.validate_agent_card(agent)
                 if not signature_result.is_valid:
                     details["message"] = signature_result.error_message
-                    await _audit_failure(OperationName.REGISTER_AGENT, details, client_ip)
+                    await _audit_failure(OperationName.REGISTER_AGENT, details, client_ip, caller)
                     raise CustomHTTPException(
                         status.HTTP_401_UNAUTHORIZED,
                         f"Card {index}/{total_cards} ({agent.name}): "
@@ -598,13 +686,13 @@ async def register_agent(
                 approval_enabled = config.get('agent_approval_enabled', 'false')
                 initial_status = 'registered' if approval_enabled == 'true' else 'published'
 
-                result = await _perform_registration(agent, client_ip, details, initial_status=initial_status, owner=owner)
+                result = await _perform_registration(agent, client_ip, details, initial_status=initial_status, owner=owner, caller=caller)
                 if not result:
                     raise CustomHTTPException(
                         status.HTTP_409_CONFLICT,
                         f"Agent '{agent.name}' already exists in organization '{agent.provider.organization}'"
                     )
-                await _audit_result(OperationName.REGISTER_AGENT, result, details, client_ip)
+                await _audit_result(OperationName.REGISTER_AGENT, result, details, client_ip, caller)
 
                 duration_ms = int((time.perf_counter() - card_started) * 1000)
                 logger.info(
@@ -646,6 +734,9 @@ async def list_agents_exact(
     logger.info(f"Query agents request: name={name}, org={organization}, client={client_ip}")
     authenticate_handle = HandlerRegistry.get_handler(InterfaceType.AUTHENTICATE)
     await authenticate_handle.handle(client_ip, request)
+    await _maybe_audit_read(OperationName.QUERY_AGENT,
+                            {"name": name or '', "organization": organization or ''},
+                            client_ip, caller=_verified_caller(_get_owner_from_request(request)))
 
     async with semaphore_guard(query_semaphore):
         query_handle = HandlerRegistry.get_handler(InterfaceType.QUERY)
@@ -655,6 +746,8 @@ async def list_agents_exact(
         for agent in agents:
             agent_status = registry.get_status(agent.name, agent.provider.organization)
             if agent_status != 'published':
+                continue
+            if _is_hidden_unhealthy(agent.name, agent.provider.organization):
                 continue
             agent_dict = MessageToDict(agent)
             published_agents.append(agent_dict)
@@ -689,6 +782,17 @@ async def update_agent(
     authenticate_handle = HandlerRegistry.get_handler(InterfaceType.AUTHENTICATE)
     await authenticate_handle.handle(client_ip, request)
 
+    return await _process_update_cards(
+        agent_cards, client_ip, name, organization, owner, signature_validator, registry_signer,
+        caller=_verified_caller(owner))
+
+
+async def _process_update_cards(
+        agent_cards: list, client_ip: str, name: str, organization: str, owner: Optional[str],
+        signature_validator: AgentCardSignatureValidator, registry_signer: Optional[AgentCardSigner],
+        caller: str = ''):
+    """Shared update flow (main port and integration port): validate, sign, update each card."""
+    total_cards = len(agent_cards)
     updated_results = []
     async with semaphore_guard(update_semaphore):
         for index, agent_card in enumerate(agent_cards, start=1):
@@ -705,14 +809,14 @@ async def update_agent(
                     validate_agent_card(agent_data)
                 except HTTPException as e:
                     details["message"] = e.detail
-                    await _audit_failure(OperationName.UPDATE_AGENT, details, client_ip)
+                    await _audit_failure(OperationName.UPDATE_AGENT, details, client_ip, caller)
                     raise CustomHTTPException(
                         e.status_code, f"Card {index}/{total_cards} ({agent_data.name}): {e.detail}") from e
 
                 signature_result = signature_validator.validate_agent_card(agent_data)
                 if not signature_result.is_valid:
                     details["message"] = signature_result.error_message
-                    await _audit_failure(OperationName.UPDATE_AGENT, details, client_ip)
+                    await _audit_failure(OperationName.UPDATE_AGENT, details, client_ip, caller)
                     raise CustomHTTPException(
                         status.HTTP_401_UNAUTHORIZED,
                         f"Card {index}/{total_cards} ({agent_data.name}): "
@@ -725,7 +829,7 @@ async def update_agent(
                     logger.info(f"Registry signature added for agent: card={index}/{total_cards}, name={agent_data.name}")
 
                 data = MessageToDict(agent_data, preserving_proto_field_name=True)
-                success = await _perform_update(client_ip, name, organization, data, details, owner=owner)
+                success = await _perform_update(client_ip, name, organization, data, details, owner=owner, caller=caller)
                 if not success:
                     raise CustomHTTPException(status.HTTP_404_NOT_FOUND, "Agent not found")
 
@@ -772,7 +876,7 @@ async def deregister_agent(
     async with semaphore_guard(deregister_semaphore):
         deregister_handle = HandlerRegistry.get_handler(InterfaceType.DEREGISTER)
         success = await deregister_handle.handle(name, organization, owner=owner)
-        await _audit_result(OperationName.DEREGISTER_AGENT, success, details, client_ip)
+        await _audit_result(OperationName.DEREGISTER_AGENT, success, details, client_ip, caller=_verified_caller(owner))
         if not success:
             raise CustomHTTPException(status.HTTP_404_NOT_FOUND, "Agent not found")
         logger.info(f"Deregister agent success: name={name}, org={organization}")
@@ -797,10 +901,15 @@ async def retrieve_agents_by_task(
     logger.info(f"Retrieve agents request: task='{task}', top_n={top_n}, client={client_ip}")
     authenticate_handle = HandlerRegistry.get_handler(InterfaceType.AUTHENTICATE)
     await authenticate_handle.handle(client_ip, request)
+    await _maybe_audit_read(OperationName.RETRIEVE_AGENT,
+                            {"task": str(task)[:200]},
+                            client_ip, caller=_verified_caller(_get_owner_from_request(request)))
 
     async with semaphore_guard(retrieve_semaphore):
         retrieve_handle = HandlerRegistry.get_handler(InterfaceType.RETRIEVE)
         agents = await retrieve_handle.handle(task, top_n)
+        agents = [agent for agent in agents
+                  if not _is_hidden_unhealthy(agent.name, agent.provider.organization)]
         result = [MessageToDict(agent) for agent in agents]
         logger.info(f"Retrieve agents result: {len(result)} agents found for task='{task}'")
         return {"agentCards": result}
@@ -822,6 +931,9 @@ async def get_agent(
     logger.info(f"Get agent request: name={name}, org={organization}, client={client_ip}")
     authenticate_handle = HandlerRegistry.get_handler(InterfaceType.AUTHENTICATE)
     await authenticate_handle.handle(client_ip, request)
+    await _maybe_audit_read(OperationName.GET_AGENT,
+                            {"name": name, "organization": organization},
+                            client_ip, caller=_verified_caller(_get_owner_from_request(request)))
 
     async with semaphore_guard(get_semaphore):
         get_handle = HandlerRegistry.get_handler(InterfaceType.GET)
@@ -834,6 +946,9 @@ async def get_agent(
         if agent_status != 'published':
             return {"agentCards": []}
 
+        if _is_hidden_unhealthy(name, organization):
+            return {"agentCards": []}
+
         agent_dict = MessageToDict(record.agent_card)
         logger.info(f"Get agent result: {'found' if agent_dict else 'not found'} for name={name}, org={organization}")
         return {"agentCards": [agent_dict]}
@@ -844,8 +959,345 @@ def close_registry():
     registry.close()
 
 
-app.add_event_handler("startup", initialize_registry)
+# ---------- Heartbeat & Health Endpoints ----------
+@app.post(
+    "/rest/v1/registry-center/agent-cards/{organization}/{name}/heartbeat",
+    summary="Report an agent heartbeat",
+)
+async def report_heartbeat(
+        request: Request,
+        name: str = Path(..., description="Agent name"),
+        organization: str = Path(..., description="Agent organization"),
+        registry: RegistryCore = Depends(get_registry),
+        _: Any = Depends(RateLimiter('heartbeat')),
+):
+    """
+    Agents periodically report liveness. The response carries the effective
+    detection config so agents can align with the registry dynamically.
+    """
+    client_ip = request.client.host
+    authenticate_handle = HandlerRegistry.get_handler(InterfaceType.AUTHENTICATE)
+    await authenticate_handle.handle(client_ip, request)
+
+    async with semaphore_guard(heartbeat_semaphore):
+        health_service = get_health_service()
+        if not health_service.enabled:
+            return JSONResponse(status_code=status.HTTP_200_OK, content={
+                "heartbeat_enabled": False,
+                "server_time": utc_now_iso(),
+            })
+        record = registry.get_by_key_with_owner(name, organization)
+        if record is None:
+            raise CustomHTTPException(status.HTTP_404_NOT_FOUND, "Agent not found")
+
+        previous, state = health_service.record_heartbeat(name, organization)
+        if previous is not None and previous != state.status:
+            get_broadcast_service().event_bus.publish(EventType.AGENT_HEALTH_CHANGED, {
+                "name": name,
+                "organization": organization,
+                "health_status": state.status.value,
+                "previous_health_status": previous.value,
+                "tags": registry.get_agent_tags(name, organization) or [],
+            })
+            logger.info(f"Agent recovered via heartbeat: {name}({organization}) "
+                        f"{previous.value} -> {state.status.value}")
+
+        return JSONResponse(status_code=status.HTTP_200_OK, content={
+            "heartbeat_enabled": True,
+            "interval": health_service.interval,
+            "failure_threshold": health_service.failure_threshold,
+            "grace_period": health_service.grace_period,
+            "server_time": utc_now_iso(),
+            "health_status": state.status.value,
+        })
+
+
+@app.get("/rest/v1/registry-center/agents/health", summary="List agent health states")
+async def list_agents_health(
+        request: Request,
+        health_status: Optional[str] = Query(None, alias="status",
+                                             description="Filter: healthy/suspect/offline"),
+        _: Any = Depends(RateLimiter('query')),
+):
+    """Admin overview of heartbeat-monitored agents for observability dashboards."""
+    client_ip = request.client.host
+    authenticate_handle = HandlerRegistry.get_handler(InterfaceType.AUTHENTICATE)
+    await authenticate_handle.handle(client_ip, request)
+
+    if health_status is not None and health_status not in (s.value for s in HealthStatus):
+        raise CustomHTTPException(status.HTTP_400_BAD_REQUEST,
+                                  f"Invalid status filter '{health_status}'")
+
+    async with semaphore_guard(query_semaphore):
+        health_service = get_health_service()
+        agents = []
+        for state in health_service.list_monitored():
+            if health_status is not None and state.status.value != health_status:
+                continue
+            agents.append({
+                "name": state.name,
+                "organization": state.organization,
+                "health_status": state.status.value,
+                "last_heartbeat_at": state.last_heartbeat_at.isoformat(),
+                "status_changed_at": state.status_changed_at.isoformat(),
+            })
+        # Detection config lets dashboards align with the actual thresholds
+        # (e.g. countdown-to-offline bars) instead of hard-coded defaults.
+        return {"agents": agents, "config": health_service.detection_config()}
+
+
+@app.get("/rest/v1/registry-center/agents/health/history",
+         summary="Query agent health transition history")
+async def list_agents_health_history(
+        request: Request,
+        name: Optional[str] = Query(None, description="Filter by agent name"),
+        organization: Optional[str] = Query(None, description="Filter by organization"),
+        limit: int = Query(50, ge=1, le=500, description="Max entries"),
+        _: Any = Depends(RateLimiter('query')),
+):
+    """Recent health status transitions (newest first) for audits and timelines."""
+    client_ip = request.client.host
+    authenticate_handle = HandlerRegistry.get_handler(InterfaceType.AUTHENTICATE)
+    await authenticate_handle.handle(client_ip, request)
+
+    async with semaphore_guard(query_semaphore):
+        health_service = get_health_service()
+        if not health_service.enabled:
+            raise CustomHTTPException(status.HTTP_503_SERVICE_UNAVAILABLE,
+                                      "Heartbeat detection is disabled")
+        return {"history": health_service.history(name, organization, limit)}
+
+
+@app.get("/rest/v1/registry-center/agents/health/stream",
+         summary="Stream agent health changes (Server-Sent Events)")
+async def stream_agent_health(
+        request: Request,
+        _: Any = Depends(RateLimiter('query')),
+):
+    """
+    Real-time AGENT_HEALTH_CHANGED push over SSE. Emits `event: health_changed`
+    frames with the RegistryEvent payload; a `: ping` comment every 15s keeps
+    intermediaries from closing the connection.
+    """
+    client_ip = request.client.host
+    authenticate_handle = HandlerRegistry.get_handler(InterfaceType.AUTHENTICATE)
+    await authenticate_handle.handle(client_ip, request)
+
+    health_service = get_health_service()
+    if not health_service.enabled:
+        raise CustomHTTPException(status.HTTP_503_SERVICE_UNAVAILABLE,
+                                  "Heartbeat detection is disabled")
+
+    broadcast_service = get_broadcast_service()
+    loop = asyncio.get_running_loop()
+    event_queue: asyncio.Queue = asyncio.Queue(maxsize=100)
+
+    def listener(event):
+        if event.event_type != EventType.AGENT_HEALTH_CHANGED:
+            return
+        try:
+            loop.call_soon_threadsafe(event_queue.put_nowait, event)
+        except RuntimeError:
+            pass  # event loop already closed
+
+    async def event_stream():
+        broadcast_service.event_bus.add_listener(listener)
+        try:
+            yield ": connected\n\n"
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    event = await asyncio.wait_for(event_queue.get(), timeout=15.0)
+                    payload = json.dumps(event.to_dict(), ensure_ascii=False)
+                    yield f"event: health_changed\ndata: {payload}\n\n"
+                except asyncio.TimeoutError:
+                    yield ": ping\n\n"
+        finally:
+            broadcast_service.event_bus.remove_listener(listener)
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+# ---------- Subscription & Change Broadcast Endpoints ----------
+@app.post("/rest/v1/registry-center/subscriptions", status_code=status.HTTP_201_CREATED,
+          summary="Create a change broadcast subscription")
+async def create_subscription(
+        request: Request,
+        _: Any = Depends(RateLimiter('subscription')),
+):
+    body = await request.json()
+    client_ip = request.client.host
+    authenticate_handle = HandlerRegistry.get_handler(InterfaceType.AUTHENTICATE)
+    await authenticate_handle.handle(client_ip, request)
+
+    broadcast_service = get_broadcast_service()
+    if not broadcast_service.broadcast_enabled:
+        raise CustomHTTPException(status.HTTP_503_SERVICE_UNAVAILABLE,
+                                  "Change broadcast is disabled")
+
+    async with semaphore_guard(subscription_semaphore):
+        callback_url = body.get("callback_url")
+        if not callback_url or not isinstance(callback_url, str):
+            raise CustomHTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT,
+                                      "callback_url is required")
+        _validate_callback_url(callback_url)
+
+        event_types = body.get("event_types")
+        if event_types is not None:
+            if not isinstance(event_types, list) or \
+                    any(t not in (e.value for e in EventType) for t in event_types):
+                raise CustomHTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT,
+                                          "event_types must be a list of valid event type names")
+        filters = body.get("filters") or {}
+        if not isinstance(filters, dict):
+            raise CustomHTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT,
+                                      "filters must be an object")
+
+        subscription = Subscription(
+            subscription_id="",
+            callback_url=callback_url,
+            event_types=event_types,
+            organizations=filters.get("organizations"),
+            tags=filters.get("tags"),
+            secret=body.get("secret"),
+        )
+        created = broadcast_service.subscription_store.create(subscription)
+        if broadcast_service.dispatcher is not None:
+            broadcast_service.dispatcher.add_subscription(created)
+        logger.info(f"Subscription created: {created.subscription_id} -> {created.callback_url}")
+        return JSONResponse(status_code=status.HTTP_201_CREATED, content=created.to_dict())
+
+
+@app.get("/rest/v1/registry-center/subscriptions", summary="List subscriptions")
+async def list_subscriptions(
+        request: Request,
+        _: Any = Depends(RateLimiter('subscription')),
+):
+    client_ip = request.client.host
+    authenticate_handle = HandlerRegistry.get_handler(InterfaceType.AUTHENTICATE)
+    await authenticate_handle.handle(client_ip, request)
+
+    broadcast_service = get_broadcast_service()
+    if not broadcast_service.broadcast_enabled:
+        raise CustomHTTPException(status.HTTP_503_SERVICE_UNAVAILABLE,
+                                  "Change broadcast is disabled")
+    subs = broadcast_service.subscription_store.list_all()
+    return {"subscriptions": [s.to_dict() for s in subs]}
+
+
+@app.delete("/rest/v1/registry-center/subscriptions/{subscription_id}",
+            summary="Delete a subscription")
+async def delete_subscription(
+        request: Request,
+        subscription_id: str = Path(..., description="Subscription ID"),
+        _: Any = Depends(RateLimiter('subscription')),
+):
+    client_ip = request.client.host
+    authenticate_handle = HandlerRegistry.get_handler(InterfaceType.AUTHENTICATE)
+    await authenticate_handle.handle(client_ip, request)
+
+    broadcast_service = get_broadcast_service()
+    if not broadcast_service.broadcast_enabled:
+        raise CustomHTTPException(status.HTTP_503_SERVICE_UNAVAILABLE,
+                                  "Change broadcast is disabled")
+    if not broadcast_service.subscription_store.delete(subscription_id):
+        raise CustomHTTPException(status.HTTP_404_NOT_FOUND, "Subscription not found")
+    if broadcast_service.dispatcher is not None:
+        broadcast_service.dispatcher.remove_subscription(subscription_id)
+    logger.info(f"Subscription deleted: {subscription_id}")
+    return JSONResponse(status_code=status.HTTP_200_OK,
+                        content={"subscription_id": subscription_id, "deleted": True})
+
+
+@app.get("/rest/v1/registry-center/changes", summary="Reconcile registry changes since a version")
+async def list_changes(
+        request: Request,
+        since: int = Query(0, ge=0, description="Last known registry_version"),
+        limit: int = Query(100, ge=1, le=1000, description="Max events per page"),
+        _: Any = Depends(RateLimiter('query')),
+):
+    """Fallback/reconciliation API: events with registry_version > since, ascending."""
+    client_ip = request.client.host
+    authenticate_handle = HandlerRegistry.get_handler(InterfaceType.AUTHENTICATE)
+    await authenticate_handle.handle(client_ip, request)
+
+    async with semaphore_guard(query_semaphore):
+        broadcast_service = get_broadcast_service()
+        events = broadcast_service.outbox.list_after(since, limit + 1)
+        has_more = len(events) > limit
+        events = events[:limit]
+        next_since = events[-1].registry_version if events else since
+        return {
+            "changes": [e.to_dict() for e in events],
+            "has_more": has_more,
+            "next_since": next_since,
+        }
+
+
+# ---------- Service lifecycle for health & broadcast ----------
+_health_sweeper = None
+
+
+async def startup_services():
+    """Initialize health/broadcast stores and start background tasks."""
+    global _health_sweeper
+    registry = get_registry()
+    backend = registry.storage if registry else None
+    if registry and registry.use_vectordb:
+        persistence_mode = "vectordb"
+    else:
+        persistence_mode = registry.persistence_mode if registry else "file"
+    initialize_health_service(backend, persistence_mode)
+    initialize_broadcast_service(backend, persistence_mode)
+    broadcast_service = get_broadcast_service()
+
+    health_service = get_health_service()
+    if health_service.enabled:
+        from agent_registry.health.sweeper import HealthSweeper
+        _health_sweeper = HealthSweeper(
+            health_service, registry, broadcast_service.event_bus,
+            interval=health_service.interval,
+            failure_threshold=health_service.failure_threshold,
+            grace_period=health_service.grace_period,
+            sweep_interval=health_service.sweep_interval,
+            offline_ttl=health_service.offline_ttl,
+        )
+        _health_sweeper.start()
+    await broadcast_service.start()
+
+
+async def shutdown_services():
+    global _health_sweeper
+    if _health_sweeper is not None:
+        await _health_sweeper.stop()
+        _health_sweeper = None
+    await get_broadcast_service().stop()
+
+
+def _initialize_registry_guarded():
+    """Startup-event wrapper: render an actionable message if storage init fails.
+
+    The synchronous pre-check in start.py normally catches this first; this
+    guard covers runs that bypass start.py (e.g. uvicorn factory usage).
+    """
+    from agent_registry.config import PERSISTENCE_CONF, PERSISTENCE_MODE
+    from agent_registry.persistence.precheck import format_storage_error
+    try:
+        initialize_registry()
+    except Exception as exc:
+        logger.error(format_storage_error(PERSISTENCE_MODE, PERSISTENCE_CONF, exc))
+        raise
+
+
+app.add_event_handler("startup", _initialize_registry_guarded)
+app.add_event_handler("startup", startup_services)
 app.add_event_handler("shutdown", close_registry)
+app.add_event_handler("shutdown", shutdown_services)
 
 # Include knowledge graph router
 app.include_router(knowledge_graph_router)

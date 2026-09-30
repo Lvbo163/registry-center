@@ -57,6 +57,8 @@ SPDX-License-Identifier: Apache-2.0
 | **所有者隔离** | 基于 TLS 客户端证书 CN 的 Agent 操作隔离，支持严格/宽松两种模式 |
 | **内容安全** | Prompt 注入关键词和高危 Skill 描述的黑名单过滤（默认启用，不可关闭） |
 | **流控限流** | 按接口粒度的速率限制（可配置：50–100 次/秒，JWK 端点：10 次/秒）和并发控制 |
+| **心跳检测** | Agent 周期上报存活状态，可配置失败阈值与宽限期，及时发现离线 Agent |
+| **变更广播** | 注册表变更通过 Webhook 实时推送订阅方（HMAC 签名、防抖、限流、Outbox 持久化），支持版本号对账 |
 | **日志审计** | 滚动 JSON 格式审计日志，记录操作六要素（时间、客户端IP、用户、操作、对象、结果） |
 | **CLI 管理** | 交互式命令行工具，支持 Agent 审批、标签管理、全量 Agent 查询 |
 | **自定义扩展** | 可插拔的处理器（认证、审计、解密、存储）和大模型（LLM）提供者 |
@@ -176,6 +178,12 @@ flowchart TB
 | `DELETE` | `/rest/v1/registry-center/agent-cards/{org}/{name}` | 注销指定 Agent |
 | `POST` | `/rest/v1/registry-center/agent-cards/semantic-query` | 按任务描述语义检索 Agent |
 | `GET` | `/rest/v1/registry-center/keys` | 获取注册中心验签公钥（JWK Set） |
+| `POST` | `/rest/v1/registry-center/agent-cards/{org}/{name}/heartbeat` | Agent 心跳上报 |
+| `GET` | `/rest/v1/registry-center/agents/health` | 查询 Agent 健康状态列表 |
+| `POST` | `/rest/v1/registry-center/subscriptions` | 创建变更订阅 |
+| `GET` | `/rest/v1/registry-center/subscriptions` | 查询订阅列表 |
+| `DELETE` | `/rest/v1/registry-center/subscriptions/{id}` | 删除订阅 |
+| `GET` | `/rest/v1/registry-center/changes` | 变更对账查询（按版本号增量拉取） |
 
 完整接口规范、请求/响应示例、错误码说明请参阅 [API 参考](docs/zh/注册中心API参考.md)。
 
@@ -187,7 +195,17 @@ flowchart TB
 | `etc/conf/server.properties` | TLS 协议版本、密码套件、连接/超时/流控参数 |
 | `etc/conf/persistence.conf` | 存储后端：`file`（默认）、`postgresql` |
 | `etc/conf/log_config.conf` | 审计日志轮转参数（文件大小、备份数量） |
-| `common/config/llm_config.json` | 语义检索的 LLM 模型端点（兼容 OpenAI 格式或 AOC 平台） |
+| `.env` | 本地密钥（Git 忽略）；模型定义见 `etc/config/models.yaml` |
+
+模型定义放在本地（Git 忽略）的 `etc/config/models.yaml`，密钥来自环境变量或
+`.env`：每条模型条目用 `provider`（默认 `openai_compatible`，`openai` 为旧别名）、`model`、`url` 描述，并用
+`api_key_env` 填写**保存密钥的环境变量名**。`embed`、`rerank` 使用相同结构。
+AOC 签名服务用 `provider: aoc_signed`，并在 `auth` 下填写 `app_key_env`、
+`app_secret_env` 等。本地可参考
+[`models.yaml.example`](etc/config/models.yaml.example) 与
+[`.env.example`](.env.example)；系统环境变量优先于 `.env`。
+协议请求/响应结构由内置 Profile 提供，应用不再读取旧 JSON。
+存量部署可先运行 `python -m scripts.migrate_llm_config` 迁移配置。
 
 交互式配置：
 
@@ -227,7 +245,7 @@ agent-registry> tag delete --id <uuid>            # 删除标签
 | [API 参考](docs/zh/注册中心API参考.md) | 完整 REST 接口规范，含请求参数、响应格式、状态码 |
 | [安全能力指南](docs/zh/注册中心安全能力指南.md) | TLS 通信、访问控制、日志审计、内容安全、证书工具 |
 | [GCP 容器化部署指南](docs/zh/注册中心GCP容器化部署指南.md) | 在 Google Cloud Platform 上容器化部署注册中心 |
-| [LLM 配置说明](common/config/README_zh.md) | LLM 配置文件字段说明与示例 |
+| [LLM 配置说明](etc/config/README_zh.md) | LLM 配置文件字段说明与示例 |
 
 ## 部署说明
 

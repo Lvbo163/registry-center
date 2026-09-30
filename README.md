@@ -57,6 +57,8 @@ The Registry Center provides unified lifecycle management for **AgentCards** —
 | **Owner Isolation** | Per-agent ownership via TLS client certificate CN, strict or relaxed mode |
 | **Content Safety** | Prompt injection and high-risk skill blacklist filtering on registration |
 | **Rate Limiting** | Per-endpoint rate limits (configurable: 50–100 req/s, JWK endpoint: 10 req/s) with moving-window algorithm |
+| **Heartbeat Detection** | Agents periodically report liveness; configurable failure threshold and grace period to identify offline agents promptly |
+| **Change Broadcast** | Registry changes pushed to subscribers via webhooks (HMAC signing, debouncing, rate limiting, outbox persistence) with version-based reconciliation |
 | **Audit Logging** | Rotating JSON audit log (time, client IP, user, operation, object, result) |
 | **CLI Administration** | Interactive CLI for agent approval, tag management, and full agent listing |
 | **Custom Extensions** | Pluggable handlers (auth, audit, decrypt, storage) and LLM providers |
@@ -176,6 +178,12 @@ flowchart TB
 | `DELETE` | `/rest/v1/registry-center/agent-cards/{org}/{name}` | Deregister an agent |
 | `POST` | `/rest/v1/registry-center/agent-cards/semantic-query` | Semantic search by task description |
 | `GET` | `/rest/v1/registry-center/keys` | Retrieve registry signing public keys (JWK Set) |
+| `POST` | `/rest/v1/registry-center/agent-cards/{org}/{name}/heartbeat` | Report agent heartbeat |
+| `GET` | `/rest/v1/registry-center/agents/health` | Query agent health status list |
+| `POST` | `/rest/v1/registry-center/subscriptions` | Create a change subscription |
+| `GET` | `/rest/v1/registry-center/subscriptions` | List subscriptions |
+| `DELETE` | `/rest/v1/registry-center/subscriptions/{id}` | Delete a subscription |
+| `GET` | `/rest/v1/registry-center/changes` | Change reconciliation (incremental pull by version) |
 
 See the [API Reference](docs/en/Registry%20Center%20API%20Reference.md) for full request/response schemas, error codes, and constraints.
 
@@ -187,7 +195,20 @@ See the [API Reference](docs/en/Registry%20Center%20API%20Reference.md) for full
 | `etc/conf/server.properties` | TLS versions, ciphers, connection/timeout/rate limits |
 | `etc/conf/persistence.conf` | Storage backend: `file` (default), `postgresql` |
 | `etc/conf/log_config.conf` | Audit log rotation (size, backup count) |
-| `common/config/llm_config.json` | LLM model endpoints for semantic search (OpenAI-compatible or AOC) |
+| `.env` | Local secrets (gitignored); model definitions live in `etc/config/models.yaml` |
+
+Model definitions live in the gitignored `etc/config/models.yaml` (copy
+[`models.yaml.example`](etc/config/models.yaml.example)), while secrets come
+from environment variables or a local gitignored `.env` (see
+[`.env.example`](.env.example)). Built-in `openai_compatible` (`openai` alias) and `aoc_signed` profiles
+provide request/response contracts, while each `models:` entry sets `model` and
+`url` and names its secret through `api_key_env` or `auth.<field>_env`. The same
+structure is used by Orchestration Center. Environment variables override
+`.env`; restart the process after changing either source. A new model using an
+existing protocol needs only configuration; a new protocol registers a profile
+in `common/llm/config/model_sources.py` and adds tests.
+Existing installations can run `python -m scripts.migrate_llm_config` once;
+the application no longer reads or tracks the old JSON.
 
 Configure interactively:
 
@@ -204,7 +225,7 @@ python -m agent_registry.init
 | [API Reference](docs/en/Registry%20Center%20API%20Reference.md) | Full REST API specification with request/response examples |
 | [Security Guide](docs/en/Registry%20Center%20Security%20Guide.md) | TLS, access control, audit logging, content safety, certificate tooling |
 | [GCP Containerized Deployment Guide](docs/en/Registry%20Center%20GCP%20Containerized%20Deployment%20Guide.md) | Containerized deployment of Registry Center on Google Cloud Platform |
-| [LLM Config](common/config/README_en.md) | LLM configuration file reference |
+| [LLM Config](etc/config/README_en.md) | LLM configuration file reference |
 
 > For Chinese documentation, see [中文 README](README_zh.md) or [docs/zh/](docs/zh/).
 

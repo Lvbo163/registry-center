@@ -31,7 +31,10 @@ from agent_registry.config import CONN_TIMEOUT, TLS_CIPHER, FORWARDED_ALLOW_IPS,
 from agent_registry.cipher_converter import CipherConverter
 from agent_registry.internal.registry_center_internal_service import RegistryCenterInternalService
 from agent_registry.internal.tcp_internal_service import TCPInternalService
+from agent_registry.persistence.precheck import verify_storage_ready
 from agent_registry.server import app
+from agent_registry.integration.listener import start_integration_access, stop_integration_access
+from agent_registry.integration.audit_sink import start_audit_sink, stop_audit_sink
 from common.cert.cert_validater import CertValidator
 from common.custom.custom_handle import HandlerRegistry
 from common.custom.interface_type import InterfaceType
@@ -82,9 +85,16 @@ def customized_create_ssl_context(
         cert_reqs: int,
         ca_certs: str | os.PathLike[str] | None,
         ciphers: str | None,
+        alpn_protocols: list[str] | None = None,
+        **kwargs,
 ) -> ssl.SSLContext:
+    # uvicorn may extend create_ssl_context's signature between versions
+    # (0.53 added alpn_protocols); absorb new keyword arguments so the
+    # global patch survives minor-version upgrades.
     try:
         ctx = ssl.SSLContext(ssl_version)
+        if alpn_protocols:
+            ctx.set_alpn_protocols(alpn_protocols)
         get_password = (lambda: password) if password else None
         ctx.load_cert_chain(certfile, keyfile, get_password)
         ctx.verify_mode = ssl.VerifyMode(cert_reqs)
@@ -155,6 +165,8 @@ def start_internal_service(server_config):
 
 def stop_internal_service():
     global _internal_service
+    stop_integration_access()
+    stop_audit_sink()
     if _internal_service:
         try:
             _internal_service.stop()
@@ -179,7 +191,18 @@ def main():
 
     server_config = get_conf()
 
+    # Fail fast on unusable storage (wrong DB config / unreachable DB) before
+    # binding any port — including the internal UDS/TCP service below.
+    verify_storage_ready()
+
     start_internal_service(server_config)
+
+    # Integration access port: disabled by default, enabled via integration.enabled
+    start_integration_access(server_config)
+
+    # Audit MySQL sink: disabled by default, enabled via audit.mysql.enabled
+    from common.util.app_config import get_persistence_conf
+    start_audit_sink(get_persistence_conf())
 
     is_https = server_config.get("enable_https", True)
     is_enable_https = str(is_https).lower() == 'true'

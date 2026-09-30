@@ -130,6 +130,33 @@ Invoke-RestMethod -Uri "https://xxxxx.run.app/rest/v1/registry-center/agent-card
 
 ---
 
+## 配置模型文件
+
+`etc/config/models.yaml` 刻意不打进镜像（已在 `.dockerignore` 中排除），因此新建的容器没有模型
+定义。服务仍会正常启动并提供接口，但所有依赖 LLM 的能力都不可用——语义匹配 Agent 返回
+`{"agentCards":[]}`，与"没有匹配"无法区分。
+
+提供该文件有两种方式：
+
+1. **Docker Compose** — `docker-compose.yml` 会挂载
+   `${LLM_CONFIG_HOST_FILE:-./etc/config/models.yaml}`，把完整文件放在该路径即可。
+2. **Cloud Run** — 容器入口脚本（`bin/entrypoint.sh`）会在服务启动前，把环境变量转成**不含密钥**的
+   `models.yaml`：
+
+   ```powershell
+   gcloud run services update registry-center --region=asia-east1 --project="YOUR_PROJECT_ID" --update-env-vars="LLM_CHAT_MODEL=deepseek-chat,LLM_CHAT_URL=https://api.deepseek.com/v1/chat/completions"
+   ```
+
+   通过部署平台的密钥机制注入 `LLM_CHAT_API_KEY`；不要把真实密钥写进命令或 Shell 历史。
+
+生成的条目包含 `provider: openai_compatible`、`model`、`url`，并且**仅当**密钥变量存在时才写入
+`api_key_env: LLM_CHAT_API_KEY`——密钥值本身从不落盘。已存在的 `models.yaml` 不会被覆盖，因此挂载的
+文件总是优先。该简化方式只生成 `chat` 能力：需要 `embed` 时请提供完整的 `models.yaml`（自定义镜像或
+挂载卷）。只设置 `LLM_CHAT_MODEL` / `LLM_CHAT_URL` 之一，或指定 `aoc_signed` 等 provider，容器会直接
+报错退出，而不是带着半套配置启动。字段说明见 [LLM 配置参考](../../etc/config/README_zh.md)。
+
+---
+
 ## API 接口
 
 部署成功后你可以通过以下接口管理 Agent 卡片：

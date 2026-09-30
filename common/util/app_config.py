@@ -124,6 +124,11 @@ def _resolve_env_vars(conf: dict) -> dict:
     return resolved
 
 
+def resolve_env_vars(conf: dict) -> dict:
+    """Public wrapper: resolve ${ENV_VAR:default} placeholders in a conf dict."""
+    return _resolve_env_vars(conf)
+
+
 def get_persistence_conf() -> dict:
     """
     Read persistence configuration file with environment variable substitution.
@@ -142,4 +147,8 @@ def get_persistence_conf() -> dict:
         from common.util.cipher_util import decrypt
         decrypted = decrypt(conf['gauss.password'])
         conf['gauss.password'] = decrypted.decode('utf-8') if isinstance(decrypted, bytes) else decrypted
+    if 'mysql.password' in conf and conf['mysql.password']:
+        from common.util.cipher_util import decrypt
+        decrypted = decrypt(conf['mysql.password'])
+        conf['mysql.password'] = decrypted.decode('utf-8') if isinstance(decrypted, bytes) else decrypted
     return conf

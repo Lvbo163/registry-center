@@ -23,6 +23,7 @@ class InterfaceType(Enum):
     DECRYPT = "decrypt"
     AUDIT = "audit"
     AUTHENTICATE = "authenticate"
+    INTEGRATION_AUTHENTICATE = "integration_authenticate"
     INSERT = "insert"
     QUERY = "query"
     UPDATE = "update"

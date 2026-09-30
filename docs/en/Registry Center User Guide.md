@@ -231,6 +231,10 @@ agent-registry>
 - **Update Specific AgentCard**: Update the information of a specific AgentCard. See [Registry Center API Reference](./Registry Center API Reference.md#update-specific-agentcard).
 - **Delete Specific AgentCard**: Delete an AgentCard that is no longer in use. See [Registry Center API Reference](./Registry Center API Reference.md#delete-specific-agentcard).
 - **Semantic Search AgentCard**: Search for matching AgentCards based on natural language semantics. See [Registry Center API Reference](./Registry Center API Reference.md#semantic-search-agentcard).
+- **Agent Heartbeat Reporting**: Agents periodically report liveness, and the Registry Center maintains health status. See [Registry Center API Reference](./Registry Center API Reference.md#report-agent-heartbeat).
+- **Agent Health Status Query**: Query the health status of heartbeat-monitored Agents. See [Registry Center API Reference](./Registry Center API Reference.md#query-agent-health-status-list).
+- **Change Subscription Management**: Create, query, and delete change broadcast subscriptions. See [Registry Center API Reference](./Registry Center API Reference.md#create-change-subscription).
+- **Change Reconciliation Query**: Incrementally pull change events by version. See [Registry Center API Reference](./Registry Center API Reference.md#change-reconciliation-query).
 
 ## Appendix
 
@@ -247,16 +251,17 @@ agent-registry>
 | ssl_keyfile | Service private key path | etc/ssl/server_key.pem |
 | signature_validation_enabled | Signature verification switch | true |
 | agent_approval_enabled | Approval switch | false |
-| use_vectordb | Enable vector database | false |
+| use_vectordb | Enable vector database (replaces the authoritative store; approval/tags may stop working) | false |
 
 ### Persistence Configuration (etc/conf/persistence.conf)
 
 | Configuration Item | Description | Default |
 |--------------------|-------------|---------|
-| persistence.mode | Storage mode (file/postgresql) | file |
-| postgresql.host | PostgreSQL host | 127.0.0.1 |
-| postgresql.port | PostgreSQL port | 5432 |
-| postgresql.name | Database name | registry_center |
+| persistence.mode | Storage mode (file/postgresql/sqlite/gauss/mysql) | file |
+| postgresql.* | PostgreSQL connection: host/port/name/username/password/pool.min/pool.max/connect_timeout | 127.0.0.1:5432 |
+| sqlite.path | SQLite database file path | data/agents.db |
+| gauss.* | GaussDB connection: host/port/database/username/password/pool.min/pool.max/connect_timeout | localhost:5432 |
+| mysql.* | MySQL connection: host/port/name/username/password/pool.min/pool.max/connect_timeout | localhost:3306 |
 
 ### Advanced Configuration (etc/conf/server.properties)
 
@@ -265,6 +270,38 @@ agent-registry>
 | agent.num.max | Maximum number of Agents | 100 |
 | connection.max | Maximum connections | 500 |
 | connection.timeout | Timeout (seconds) | 300 |
+
+### Heartbeat Detection Configuration (etc/conf/server.conf)
+
+Agents periodically report liveness, and the Registry Center determines health status based on the failure threshold. All settings can be overridden with `REGISTRY_`-prefixed environment variables (for example, `REGISTRY_HEARTBEAT_INTERVAL`).
+
+| Configuration Item | Description | Default |
+|--------|------|--------|
+| heartbeat.enabled | Heartbeat detection master switch; when off, behavior matches legacy versions | false |
+| heartbeat.interval | Expected heartbeat period (seconds), advertised to Agents in the heartbeat response | 30 |
+| heartbeat.failure.threshold | Consecutive missed periods before an Agent is marked offline | 3 |
+| heartbeat.grace.period | Suspect-state buffer duration (seconds) | 10 |
+| heartbeat.sweep.interval | Background sweep period (seconds) | 10 |
+| heartbeat.offline.ttl | Auto-deregister Agents offline longer than this (0 = disabled) | 0 |
+| heartbeat.hide.unhealthy.results | Whether suspect/offline Agents are hidden from query results | false |
+| flowcontrol.ratelimit.heartbeat | Heartbeat API rate limit (requests/second/IP) | 100 |
+
+### Change Broadcast Configuration (etc/conf/server.conf)
+
+Registry changes (registration/update/deregistration/health changes) are pushed to subscribers via webhooks. Events are persisted before dispatch, so a Registry Center restart never loses them; subscribers can catch up by version through the change reconciliation API.
+
+| Configuration Item | Description | Default |
+|--------|------|--------|
+| broadcast.enabled | Broadcast master switch | false |
+| broadcast.debounce.window | Debounce window (seconds); repeated changes of one Agent are coalesced | 2 |
+| broadcast.max.events.per.second | Per-subscription delivery rate limit (overflow degrades to a summary event) | 50 |
+| broadcast.webhook.timeout | Delivery timeout (seconds) | 10 |
+| broadcast.webhook.max.retries | Maximum retries (exponential backoff) | 5 |
+| broadcast.webhook.backoff.base | Backoff base (seconds) | 2 |
+| broadcast.webhook.backoff.max | Backoff cap (seconds) | 300 |
+| broadcast.outbox.retention.days | Event retention days | 7 |
+| broadcast.allow.http.callbacks | Whether HTTP callbacks are allowed (development only) | false |
+| broadcast.callback.allowlist | Callback host allowlist (comma-separated domain names) | empty |
 
 ## Error Code Quick Reference
 
@@ -322,3 +359,18 @@ signature_validation_enabled=false
 ### Q5: Can it run in a Windows environment?
 
 Yes. The Registry Center supports Windows environments for development and debugging. The unified entry point is: `python -m agent_registry.start`. On Windows, the built-in service uses the TCP protocol (127.0.0.1:1108).
+
+### Q6: Semantic matching / intelligent filtering always returns an empty list — how do I debug it?
+
+**Symptom**: A semantic search call always returns an empty `agentCards` list, indistinguishable from "no matching Agent".
+
+**Cause**: The feature depends on the `chat` capability in `etc/config/models.yaml` (plus `rerank` when reranking is enabled). That file is local configuration and is not shipped in the package or image, so without it the API still returns 200 — with an empty result.
+
+**Steps**:
+
+1. Confirm `etc/config/models.yaml` exists (copy `etc/config/models.yaml.example` to start) and has a `chat` entry under `models:`; `model` and `url` are required
+2. Confirm the environment variable each entry names through `api_key_env` is set in the process environment or the repository-root `.env` (never write secrets into the model file)
+3. Look for `No model configured for capability 'chat'` in the backend log
+4. Restart the service after changes — model clients are cached per process
+
+See [Development Guide Appendix 4](Registry%20Center%20Development%20Guide.md) and [`models.yaml.example`](../../etc/config/models.yaml.example) for the fields and protocols, and [Configure the Model File](Registry%20Center%20GCP%20Containerized%20Deployment%20Guide.md) for container deployments.
