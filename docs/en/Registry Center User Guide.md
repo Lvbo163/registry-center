@@ -364,13 +364,13 @@ Yes. The Registry Center supports Windows environments for development and debug
 
 **Symptom**: A semantic search call always returns an empty `agentCards` list, indistinguishable from "no matching Agent".
 
-**Cause**: The feature depends on the `chat` capability in `common/config/models.yaml` (plus `rerank` when reranking is enabled). That file is local configuration and is not shipped in the package or image, so without it the API still returns 200 — with an empty result.
+**Cause**: The feature depends on the `chat` capability in `etc/config/models.yaml` (plus `rerank` when reranking is enabled). That file is local configuration and is not shipped in the package or image, so without it the API still returns 200 — with an empty result.
 
 **Steps**:
 
-1. Confirm `common/config/models.yaml` exists (copy `common/config/models.yaml.example` to start) and has a `chat` entry under `models:`; `model` and `url` are required
+1. Confirm `etc/config/models.yaml` exists (copy `etc/config/models.yaml.example` to start) and has a `chat` entry under `models:`; `model` and `url` are required
 2. Confirm the environment variable each entry names through `api_key_env` is set in the process environment or the repository-root `.env` (never write secrets into the model file)
 3. Look for `No model configured for capability 'chat'` in the backend log
 4. Restart the service after changes — model clients are cached per process
 
-See [Development Guide Appendix 4](Registry%20Center%20Development%20Guide.md) and [`models.yaml.example`](../../common/config/models.yaml.example) for the fields and protocols, and [Configure the Model File](Registry%20Center%20GCP%20Containerized%20Deployment%20Guide.md) for container deployments.
+See [Development Guide Appendix 4](Registry%20Center%20Development%20Guide.md) and [`models.yaml.example`](../../etc/config/models.yaml.example) for the fields and protocols, and [Configure the Model File](Registry%20Center%20GCP%20Containerized%20Deployment%20Guide.md) for container deployments.

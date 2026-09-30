@@ -34,7 +34,7 @@ def _run_entrypoint(tmp_path, **extra_env):
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX container entrypoint")
 def test_entrypoint_generates_chat_without_writing_secret(tmp_path):
-    (tmp_path / "common" / "config").mkdir(parents=True)
+    (tmp_path / "etc" / "config").mkdir(parents=True)
     result = _run_entrypoint(
         tmp_path,
         LLM_CHAT_MODEL="model",
@@ -42,7 +42,7 @@ def test_entrypoint_generates_chat_without_writing_secret(tmp_path):
         LLM_CHAT_API_KEY="secret-value",
     )
     assert result.returncode == 0, result.stderr
-    path = tmp_path / "common" / "config" / "models.yaml"
+    path = tmp_path / "etc" / "config" / "models.yaml"
     document = yaml.safe_load(path.read_text(encoding="utf-8"))
     assert document["models"]["chat"]["api_key_env"] == "LLM_CHAT_API_KEY"
     assert document["models"]["chat"]["provider"] == "openai_compatible"
@@ -51,7 +51,7 @@ def test_entrypoint_generates_chat_without_writing_secret(tmp_path):
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX container entrypoint")
 def test_entrypoint_keeps_existing_model_file(tmp_path):
-    config_dir = tmp_path / "common" / "config"
+    config_dir = tmp_path / "etc" / "config"
     config_dir.mkdir(parents=True)
     path = config_dir / "models.yaml"
     existing = "models:\n  embed:\n    model: kept\n    url: https://example.invalid/embed\n"
@@ -68,7 +68,7 @@ def test_entrypoint_keeps_existing_model_file(tmp_path):
 @pytest.mark.skipif(os.name == "nt", reason="POSIX container entrypoint")
 @pytest.mark.parametrize("provider", ["aoc_signed", "unknown"])
 def test_entrypoint_rejects_provider_requiring_full_yaml(tmp_path, provider):
-    (tmp_path / "common" / "config").mkdir(parents=True)
+    (tmp_path / "etc" / "config").mkdir(parents=True)
     result = _run_entrypoint(
         tmp_path,
         LLM_CHAT_MODEL="model",
@@ -77,13 +77,13 @@ def test_entrypoint_rejects_provider_requiring_full_yaml(tmp_path, provider):
     )
     assert result.returncode != 0
     assert "provide a complete models.yaml" in result.stderr
-    assert not (tmp_path / "common" / "config" / "models.yaml").exists()
+    assert not (tmp_path / "etc" / "config" / "models.yaml").exists()
 
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX container entrypoint")
 def test_entrypoint_rejects_partial_chat_configuration(tmp_path):
-    (tmp_path / "common" / "config").mkdir(parents=True)
+    (tmp_path / "etc" / "config").mkdir(parents=True)
     result = _run_entrypoint(tmp_path, LLM_CHAT_MODEL="model")
     assert result.returncode != 0
     assert "Incomplete chat model configuration" in result.stderr
-    assert not (tmp_path / "common" / "config" / "models.yaml").exists()
+    assert not (tmp_path / "etc" / "config" / "models.yaml").exists()

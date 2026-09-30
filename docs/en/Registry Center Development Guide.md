@@ -117,7 +117,7 @@ Registry Center is a service focused on unified Agent management, enabling users
     Configuration file paths:
     - Service configuration: `etc/conf/server.conf`
     - Persistence configuration: `etc/conf/persistence.conf`
-    - LLM configuration: model definitions in `common/config/models.yaml`, secrets in `.env` or the process environment (see [Appendix 4](#appendix-4-llm-configuration-guide))
+    - LLM configuration: model definitions in `etc/config/models.yaml`, secrets in `.env` or the process environment (see [Appendix 4](#appendix-4-llm-configuration-guide))
 
 5. Certificate preparation
 
@@ -137,7 +137,7 @@ Registry Center is a service focused on unified Agent management, enabling users
 
 6. Configure the LLM
 
-    Define each capability under `models:` in `common/config/models.yaml` and name its secret through `api_key_env` there, keeping the value in the repository-root `.env` or process environment. Use `provider: aoc_signed` with `auth.app_key_env` / `auth.app_secret_env` for AOC endpoints. See [Appendix 4](#appendix-4-llm-configuration-guide) and [`models.yaml.example`](../../common/config/models.yaml.example).
+    Define each capability under `models:` in `etc/config/models.yaml` and name its secret through `api_key_env` there, keeping the value in the repository-root `.env` or process environment. Use `provider: aoc_signed` with `auth.app_key_env` / `auth.app_secret_env` for AOC endpoints. See [Appendix 4](#appendix-4-llm-configuration-guide) and [`models.yaml.example`](../../etc/config/models.yaml.example).
 
 7. Verify the environment setup
 
@@ -955,7 +955,7 @@ print("Verification passed")
 
 ### Custom LLM Usage
 
-The Registry Center reads model definitions from `common/config/models.yaml` and secrets from the process environment or the repository-root `.env`; environment variables take precedence and empty values do not mask `.env`. See [LLM configuration](../../common/config/README_en.md) and [`.env.example`](../../.env.example).
+The Registry Center reads model definitions from `etc/config/models.yaml` and secrets from the process environment or the repository-root `.env`; environment variables take precedence and empty values do not mask `.env`. See [LLM configuration](../../etc/config/README_en.md) and [`.env.example`](../../.env.example).
 
 Define a `chat` entry for intelligent Agent selection, plus `embed` for semantic retrieval and `rerank` when reranking is enabled. Each capability sets `model` and `url`, and may set `provider`, `description`, `timeout`, `verify_ssl`, `enable_thinking`, and `api_key_env`. The keys present under `models:` are the loaded capabilities. The `provider` field defaults to `openai_compatible` (the legacy alias `openai` is also accepted); `aoc_signed` uses `auth.app_key_env` and `auth.app_secret_env`. Register a new provider profile in `common/llm/config/model_sources.py` to support a different wire protocol without modifying the settings source.
 
@@ -1057,7 +1057,7 @@ For detailed specifications, please refer to [AgentCard Security Specification](
 
 ### Appendix 4: LLM Configuration Guide
 
-Model definitions live in the gitignored `common/config/models.yaml`, while secrets live in the repository-root `.env` or the process environment, which takes precedence. See the complete [LLM configuration reference](../../common/config/README_en.md). Each capability needs `model` and `url`; `provider` chooses a protocol profile (`openai_compatible`, whose legacy alias `openai` still works, or `aoc_signed`), and other settings include `api_key_env`, `timeout`, `verify_ssl`, and `enable_thinking`. Add or remove a key under `models:` to change the loaded set, and restart the service after edits.
+Model definitions live in the gitignored `etc/config/models.yaml`, while secrets live in the repository-root `.env` or the process environment, which takes precedence. See the complete [LLM configuration reference](../../etc/config/README_en.md). Each capability needs `model` and `url`; `provider` chooses a protocol profile (`openai_compatible`, whose legacy alias `openai` still works, or `aoc_signed`), and other settings include `api_key_env`, `timeout`, `verify_ssl`, and `enable_thinking`. Add or remove a key under `models:` to change the loaded set, and restart the service after edits.
 
 ## FAQ
 
@@ -1146,4 +1146,4 @@ Solutions:
 
 ### 9: What to do when a newly added LLM is unavailable?
 
-Check that the capability has an entry under `models:` in `common/config/models.yaml` with `model` and `url` set, and that its `provider` profile is registered. Process environment values override `.env`. Restart the service after changing settings.
+Check that the capability has an entry under `models:` in `etc/config/models.yaml` with `model` and `url` set, and that its `provider` profile is registered. Process environment values override `.env`. Restart the service after changing settings.
