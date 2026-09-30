@@ -33,6 +33,6 @@ class ExtentionParam:
 
 
 extension_param_list = [
-    ExtentionParam(key="role", node_label="AgentRole", relationship_type="HAS_ROLE"),
-    ExtentionParam(key="business", node_label="business", relationship_type="HANDLE_BUSINNESS"),
+    ExtentionParam(key="role", node_label="role", relationship_type="has_role"),
+    ExtentionParam(key="business", node_label="business", relationship_type="handles_business"),
 ]
